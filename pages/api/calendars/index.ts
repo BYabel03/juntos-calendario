@@ -2,7 +2,9 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import { getToken } from "next-auth/jwt";
 import dbConnect from "lib/dbConnect";
 import Calendar from "models/calendar";
-import { mergeCalendars, validCalendar } from "lib/calendar";
+import { defaultCalendars, mergeCalendars, validCalendar } from "lib/calendar";
+
+import { canManageReservations } from "lib/calendarPermissions";
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   res.setHeader("Cache-Control", "no-store");
@@ -16,11 +18,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
   try {
     const token = await getToken({ req, secret: process.env.NEXT_AUTH_SECRET });
-    if (!token?.email) return res.status(401).json({ error: "Inicia sesión para acceder a tus calendarios." });
+    if (!canManageReservations(token)) {
+      if (req.method === "GET") return res.status(200).json(defaultCalendars);
+      return res.status(token?.email ? 403 : 401).json({ error: "Solo el administrador puede personalizar los calendarios." });
+    }
     if (req.method === "PUT" && !validCalendar(req.body)) {
       return res.status(400).json({ error: "Escribe un nombre de hasta 60 caracteres y elige un color válido." });
     }
-    const owner = token.email;
+    const owner = token!.email;
     await dbConnect();
     if (req.method === "GET") {
       const saved = await Calendar.find({ owner }).lean();

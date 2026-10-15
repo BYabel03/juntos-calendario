@@ -5,7 +5,7 @@ export function isCalendarAdminEmail(email: unknown): boolean {
     .split(",")
     .map((value) => value.trim().toLowerCase())
     .filter(Boolean);
-  return allowed.includes(email.trim().toLowerCase());
+  return allowed.length === 1 && allowed[0] === email.trim().toLowerCase();
 }
 
 export function canManageReservations(token: {
@@ -14,3 +14,6 @@ export function canManageReservations(token: {
 } | null): boolean {
   return token?.calendarEmailVerified === true && isCalendarAdminEmail(token.email);
 }
+
+// Public reservations have no visitor account or email attached.
+export const PUBLIC_RESERVATION_OWNER = "public-link";

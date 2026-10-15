@@ -47,7 +47,7 @@ test('GitHub administrator requires a verified email from provider API', async (
     assert.equal(h.requests(), 1);
   }
 });
-test('ordinary users keep login without extra provider calls or admin privileges', async () => {
+test('non-admin tokens never gain privileges or trigger extra verification calls', async () => {
   for (const admins of ['', 'other@example.test']) {
     const h = harness({ admins });
     const token = await h.callbacks.jwt({ token: { email: 'admin@example.test', calendarEmailVerified: true }, account: { provider: 'github', access_token: 'synthetic-only' } });
@@ -63,4 +63,13 @@ test('session privileges come from signed verified token and current server allo
   assert.equal((await h.callbacks.session({ session: { isCalendarAdmin: true }, token: { email: 'admin@example.test' } })).isCalendarAdmin, false);
   h.env.CALENDAR_ADMIN_EMAILS = '';
   assert.equal((await h.callbacks.session({ session: { isCalendarAdmin: true }, token })).isCalendarAdmin, false);
+});
+
+test('only the single configured administrator can sign in', async () => {
+  const h = harness();
+  assert.equal(await h.callbacks.signIn({ user: { email: 'ADMIN@example.test' } }), true);
+  for (const email of ['visitor@example.test', null, undefined])
+    assert.equal(await h.callbacks.signIn({ user: { email } }), false);
+  h.env.CALENDAR_ADMIN_EMAILS = 'admin@example.test,second@example.test';
+  assert.equal(await h.callbacks.signIn({ user: { email: 'admin@example.test' } }), false);
 });

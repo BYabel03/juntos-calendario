@@ -1,85 +1,85 @@
-# Activar las cuentas de Juntos
+# Publicar reservas por enlace y activar un administrador
 
-El calendario necesita una base MongoDB y al menos un proveedor de acceso. Puedes empezar solo con GitHub y añadir Google después.
+## Cómo funciona
 
-## 1. Preparar la configuración privada
+- Los visitantes abren el enlace, ven los datos de todas las reservas y pueden crear una sin registrarse.
+- Al abrir una reserva guardada, ven sus datos sin campos editables.
+- Solo el administrador inicia sesión y puede editar o eliminar cualquier reserva.
+- Todas las reservas se guardan en MongoDB. **Actualizar reservas** o recargar la página muestra los cambios de otros visitantes.
 
-Desde la carpeta del proyecto:
+## 1. Subir el proyecto actualizado a GitHub
+
+Extrae el ZIP actualizado y sube su contenido a la raíz del repositorio conectado a Vercel. Guarda los cambios con un commit. No subas `.env.local`, `node_modules`, `.git` ni `.next`.
+
+En Vercel utiliza Next.js, Node **24.x**, instalación `yarn install --frozen-lockfile`, compilación `yarn build` y directorio de salida automático.
+
+## 2. Crear la base de datos compartida
+
+1. Crea un proyecto y un clúster en [MongoDB Atlas](https://www.mongodb.com/cloud/atlas/register), o usa tu servidor MongoDB.
+2. En **Database Access**, crea un usuario de base de datos con acceso a la base de esta aplicación. Es distinto de tu cuenta de Atlas.
+3. En **Network Access**, permite las conexiones desde el alojamiento de producción según su configuración de red.
+4. En **Connect → Drivers**, copia la URI. Completa usuario, contraseña y nombre de base; codifica los caracteres especiales de la contraseña como URL.
+5. En Vercel → **Settings → Environment Variables**, guarda esa URI como `MONGODB_URI` para **Production**.
+
+Sin esta conexión, el calendario muestra un error y no guarda reservas. No hay una copia compartida en el navegador.
+
+## 3. Variables de producción
+
+En Vercel añade para **Production**:
+
+| Nombre | Valor |
+| --- | --- |
+| `MONGODB_URI` | La conexión MongoDB del paso anterior |
+| `NEXTAUTH_URL` | La URL pública HTTPS de tu calendario, sin ruta ni barra final |
+| `NEXT_AUTH_SECRET` | Un secreto aleatorio de al menos 32 caracteres, estable entre despliegues |
+| `CALENDAR_ADMIN_EMAILS` | Solo el correo verificado de tu cuenta de administrador |
+
+Aunque el nombre termine en EMAILS, esta versión acepta **un solo correo**. Si introduces varios, no se concede administración. Para cambiar de administrador, sustituye el correo y vuelve a desplegar; el anterior pierde acceso a las modificaciones.
+
+No compartas secretos en el chat ni en GitHub.
+
+## 4. Activar el acceso del administrador
+
+Puedes elegir GitHub o Google. Los demás visitantes no necesitan cuenta.
+
+### GitHub
+
+1. Abre [GitHub → New OAuth App](https://github.com/settings/applications/new).
+2. Completa **Application name** con Juntos Calendario.
+3. En **Homepage URL**, usa la URL pública del calendario.
+4. En **Authorization callback URL**, usa esa URL seguida de `/api/auth/callback/github`.
+5. Registra la aplicación. Copia **Client ID** en la variable de Vercel `GITHUB_ID`.
+6. Genera un **Client secret** y guárdalo como `GITHUB_SECRET`.
+7. Verifica en GitHub → **Settings → Emails** que el correo usado por tu cuenta esté verificado y coincida con `CALENDAR_ADMIN_EMAILS`.
+
+### Google (alternativa)
+
+1. En [Google Cloud Console](https://console.cloud.google.com/apis/credentials), configura el consentimiento OAuth. Si está en pruebas, añade tu cuenta como usuario de prueba.
+2. Crea un cliente OAuth de tipo Aplicación web.
+3. Usa la URL pública como origen y esa URL seguida de `/api/auth/callback/google` como redirección autorizada.
+4. Guarda las credenciales como `GOOGLE_ID` y `GOOGLE_SECRET` en Vercel.
+5. Usa el correo verificado de esa cuenta en `CALENDAR_ADMIN_EMAILS`.
+
+No se necesita activar Google Calendar. Los botones aparecen cuando están configuradas las dos credenciales del proveedor. Otras cuentas no pueden iniciar sesión; el permiso de administrador requiere además la verificación del correo por el proveedor.
+
+## 5. Volver a desplegar y usar
+
+1. En Vercel → **Deployments**, abre **⋯ → Redeploy** en el último despliegue y espera **Ready**.
+2. Comparte la URL pública. Los visitantes podrán crear reservas y ver sus datos sin iniciar sesión.
+3. Para administrar, pulsa **Acceso del administrador** y entra con tu cuenta configurada.
+4. Verás **Administrar reservas**. Abre una reserva y pulsa **Editar reserva** o **Eliminar reserva**.
+5. Si ya habías iniciado sesión antes de configurar el correo, cierra sesión y vuelve a entrar.
+
+Comprueba en dos navegadores: crea una reserva sin cuenta en uno y recarga el otro para verla. El visitante debe poder consultar y crear, pero no editar ni eliminar. Como administrador, comprueba la edición y eliminación de esa reserva.
+
+## Desarrollo local
 
 ```sh
 corepack yarn config:init
-```
-
-Este comando crea `.env.local` y genera `NEXT_AUTH_SECRET`. Si el archivo ya existe, conserva todos sus valores. Nunca imprime el secreto. `.env.local` está excluido de Git.
-
-## 2. Crear la base de datos
-
-1. Crea un proyecto y un clúster en [MongoDB Atlas](https://www.mongodb.com/cloud/atlas/register), o utiliza tu servidor MongoDB existente.
-2. En **Database Access**, crea un usuario de base de datos con acceso a la base de la aplicación. Es distinto de tu cuenta de Atlas.
-3. En **Network Access**, permite la IP del servidor que ejecutará la aplicación.
-4. En **Connect → Drivers**, copia la URI de conexión. Sustituye el usuario, la contraseña y el nombre de la base. Si la contraseña contiene caracteres especiales, codifícalos para una URL.
-5. Guarda la URI en `MONGODB_URI` dentro de `.env.local`.
-
-## 3. Activar GitHub
-
-1. Abre [GitHub → New OAuth App](https://github.com/settings/applications/new).
-2. Para desarrollo local, completa:
-   - **Application name:** Juntos local.
-   - **Homepage URL:** `http://localhost:3000`.
-   - **Authorization callback URL:** `http://localhost:3000/api/auth/callback/github`.
-3. Copia **Client ID** a `GITHUB_ID`.
-4. Genera un **Client secret** y guárdalo en `GITHUB_SECRET`.
-
-Guarda estos datos únicamente en `.env.local` o en las variables privadas de tu alojamiento. No los envíes por el chat ni los subas al repositorio.
-
-## 4. Activar Google (opcional)
-
-1. Crea o selecciona un proyecto en [Google Cloud Console](https://console.cloud.google.com/apis/credentials).
-2. Configura la pantalla de consentimiento OAuth. Si la aplicación está en pruebas, añade tus cuentas de prueba a la audiencia.
-3. Crea un cliente OAuth de tipo **Aplicación web**.
-4. Añade como origen `http://localhost:3000` y como URI de redirección autorizada `http://localhost:3000/api/auth/callback/google`.
-5. Guarda sus credenciales en `GOOGLE_ID` y `GOOGLE_SECRET`.
-
-El acceso solicita identidad, nombre y correo. No necesita activar la API de Google Calendar.
-
-## 5. Comprobar y probar
-
-```sh
 corepack yarn config:check
 corepack yarn dev
 ```
 
-Reinicia el servidor después de cambiar variables. La comprobación muestra los campos que faltan, sin revelar valores. Valida el formato y la presencia de configuración; no comprueba credenciales reales ni la conexión con MongoDB.
+El inicializador crea `.env.local` con un secreto privado y conserva los archivos existentes. Completa las variables del ejemplo. La comprobación valida presencia/formato, sin imprimir secretos ni conectar con proveedores o base de datos.
 
-Abre la aplicación, inicia sesión y crea un evento. Recarga para comprobar su persistencia. Cierra sesión e inicia con otra cuenta: no debe ver los eventos de la primera. Los eventos del modo de prueba permanecen separados en el navegador.
-
-Los botones de Google y GitHub aparecen cuando están presentes sus dos credenciales. Si falla el acceso, la aplicación vuelve al calendario y permite reintentar.
-
-## 6. Al publicar
-
-Cuando tengas una URL pública:
-
-1. Configura `MONGODB_URI`, `NEXT_AUTH_SECRET` y las credenciales del proveedor en las variables privadas del alojamiento.
-2. Genera un secreto de sesión exclusivo para producción y mantenlo estable entre despliegues.
-3. Cambia `NEXTAUTH_URL` a la URL pública HTTPS, sin ruta ni parámetros.
-4. Registra la URL pública de retorno: `https://tu-dominio/api/auth/callback/github` o `/google`. Para GitHub, utiliza otra OAuth App para producción y conserva la de desarrollo.
-5. Permite la conexión del servidor de producción a MongoDB y repite la prueba con dos cuentas.
-
-En Vercel selecciona el framework **Next.js**, Node **24.x**, instalación `yarn install --frozen-lockfile` y compilación `yarn build`. Deja el directorio de salida con el valor automático. La versión de Node también está declarada en `package.json`.
-
-
-## 7. Administrador de reservas
-
-Los usuarios que inician sesión pueden crear reservas y consultar las suyas. Solo los administradores pueden ver todas las reservas, editarlas o eliminarlas. El modo de prueba no concede permisos de administrador.
-
-En Vercel → **Settings → Environment Variables**, añade:
-
-- **Name:** `CALENDAR_ADMIN_EMAILS`
-- **Value:** el correo que devuelve Google o GitHub al iniciar sesión con tu cuenta. Para varios administradores, separa sus correos con comas.
-- **Environment:** Production (y Preview solo si también quieres ese acceso allí).
-
-Guarda, vuelve a desplegar y cierra sesión antes de entrar de nuevo. El correo debe estar verificado por el proveedor. En GitHub, confirma ese correo en Settings → Emails; en Google, usa una cuenta con correo verificado. La lista de correos se guarda solo en el servidor y la aplicación comprueba los permisos en cada petición. Un fallo de verificación no concede acceso de administrador.
-
-Al entrar verás **Administrar reservas**, con los datos del creador en cada reserva. Abre una reserva y utiliza **Editar reserva** o **Eliminar reserva**. Las reservas nuevas siguen disponibles para usuarios normales mediante **Crear reserva**. Los cambios del administrador conservan al creador original.
-
-Para desarrollo local, configura la misma variable en `.env.local` y reinicia. Para retirar un administrador, elimina su correo de la variable y vuelve a desplegar. La sesión antigua no mantiene permisos frente a una lista ya actualizada en el servidor.
+Para local usa `NEXTAUTH_URL=http://localhost:3000` y una OAuth App de desarrollo con callback `http://localhost:3000/api/auth/callback/github` (o `/google`). Reinicia el servidor tras cambiar variables. Conserva una aplicación OAuth distinta para producción.

@@ -13,7 +13,6 @@ import {
   validCalendar,
   Category,
   dateKey,
-  demoEvents,
   fromKey,
   monthDays,
   validEvent,
@@ -112,8 +111,6 @@ function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
 const format = (date: Date, options: Intl.DateTimeFormatOptions) =>
   date.toLocaleDateString("es-ES", options);
 const weekdays = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
-const storageKey = "juntos-calendar-demo-v1";
-const calendarsKey = "juntos-calendar-options-demo-v1";
 
 export default function Calendar() {
   const { data: session, status } = useSession();
@@ -133,6 +130,7 @@ export default function Calendar() {
   const [hidden, setHidden] = useState<Category[]>([]);
   const [query, setQuery] = useState("");
   const [loaded, setLoaded] = useState(false);
+  const [refresh, setRefresh] = useState(0);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [editing, setEditing] = useState<CalendarEvent | null>(null);
@@ -172,52 +170,34 @@ export default function Calendar() {
     if (!today || status === "loading") return;
     const abort = new AbortController();
     setError("");
-    if (isAuthenticated) {
-      Promise.all(["/api/events", "/api/calendars"].map(async (url) => {
-        const res = await fetch(url, { signal: abort.signal });
-        if (!res.ok) throw new Error("No pudimos cargar tu calendario. Comprueba la conexión y vuelve a intentarlo.");
+    Promise.all([
+      fetch("/api/events", { signal: abort.signal }).then(async (res) => {
+        if (!res.ok) throw new Error("No pudimos cargar las reservas. Intenta actualizar de nuevo.");
         return res.json();
-      }))
-        .then(([data, savedCalendars]) => {
-          if (scope !== scopeRef.current) return;
-          if (!Array.isArray(data) || !data.every((e) => e && typeof e.id === "string" && validEvent(e)) ||
-            !Array.isArray(savedCalendars) || !savedCalendars.every(validCalendar)) {
-            throw new Error("No pudimos leer tus calendarios.");
-          }
-          setCalendars(mergeCalendars(savedCalendars));
-          setEvents(data);
-          setLoaded(true);
-        })
-        .catch((e) => {
-          if (scope === scopeRef.current && e.name !== "AbortError")
-            setError(e.message);
-        });
-    } else {
-      try {
-        const savedOptions = localStorage.getItem(calendarsKey);
-        const options = savedOptions ? JSON.parse(savedOptions) : [];
-        if (!Array.isArray(options) || !options.every(validCalendar)) throw new Error();
-        setCalendars(mergeCalendars(options));
-        const saved = localStorage.getItem(storageKey);
-        const data = saved ? JSON.parse(saved) : demoEvents(today);
-        if (
-          !Array.isArray(data) ||
-          !data.every((e) => e && typeof e.id === "string" && validEvent(e))
-        )
-          throw new Error();
+      }),
+      isAdmin ? fetch("/api/calendars", { signal: abort.signal }).then(async (res) => {
+        if (!res.ok) throw new Error("No pudimos cargar los calendarios.");
+        return res.json();
+      }) : Promise.resolve(defaultCalendars),
+    ])
+      .then(([data, savedCalendars]) => {
+        if (scope !== scopeRef.current) return;
+        if (!Array.isArray(data) || !data.every((e) => e && typeof e.id === "string" && validEvent(e)) ||
+          !Array.isArray(savedCalendars) || !savedCalendars.every(validCalendar)) {
+          throw new Error("No pudimos leer las reservas.");
+        }
+        setCalendars(mergeCalendars(savedCalendars));
         setEvents(data);
         setLoaded(true);
-      } catch {
-        setError(
-          "No pudimos leer la vista de prueba. Comprueba el almacenamiento de tu navegador."
-        );
-      }
-    }
+      })
+      .catch((e) => {
+        if (scope === scopeRef.current && e.name !== "AbortError") setError(e.message);
+      });
     return () => {
       scopeRef.current = scope + 1;
       abort.abort();
     };
-  }, [today, status, isAuthenticated, isAdmin, session?.user?.email]);
+  }, [today, status, isAuthenticated, isAdmin, session?.user?.email, refresh]);
 
   useEffect(() => {
     if (editing && !dialogRef.current?.open) dialogRef.current?.showModal();
@@ -323,7 +303,7 @@ export default function Calendar() {
         color: event.color || calendars.find((c) => c.id === event.category)?.color || "#387c65",
       };
       let saved = reservation;
-      if (isAuthenticated) {
+      {
         const res = await fetch("/api/events", {
           method: remove ? "DELETE" : event.id ? "PUT" : "POST",
           headers: { "Content-Type": "application/json" },
@@ -334,11 +314,10 @@ export default function Calendar() {
           throw new Error(data.error || "No se pudo guardar la reserva.");
         }
         if (!remove) saved = await res.json();
-      } else saved = { ...reservation, id: crypto.randomUUID() };
+      }
       if (scope !== scopeRef.current) return;
       const next = remove ? events.filter((e) => e.id !== event.id)
         : [...events.filter((e) => e.id !== event.id), saved];
-      if (!isAuthenticated) localStorage.setItem(storageKey, JSON.stringify(next));
       setEvents(next);
       setSelected(event.date);
       setCursor(fromKey(event.date));
@@ -374,6 +353,7 @@ export default function Calendar() {
       "--event-text": appearance.text, "--event-ink": appearance.ink } as CSSProperties;
   }
   function openCalendars() {
+    if (!isAdmin) return;
     calendarTriggerRef.current = document.activeElement as HTMLElement;
     setCalendarError("");
     setCalendarDraft(null);
@@ -386,7 +366,7 @@ export default function Calendar() {
   }
   async function saveCalendar(e: FormEvent) {
     e.preventDefault();
-    if (calendarSaving || saving || !loaded || !calendarDraft) return;
+    if (!isAdmin || calendarSaving || saving || !loaded || !calendarDraft) return;
     if (!validCalendar(calendarDraft)) {
       setCalendarError("Escribe un nombre y elige un color válido.");
       return;
@@ -397,7 +377,7 @@ export default function Calendar() {
     setCalendarError("");
     try {
       let saved = { ...calendarDraft, label: calendarDraft.label.trim() };
-      if (isAuthenticated) {
+      {
         const response = await fetch("/api/calendars", {
           method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(saved),
         });
@@ -411,7 +391,6 @@ export default function Calendar() {
       if (scope !== scopeRef.current) return;
       const next = calendars.some((c) => c.id === saved.id)
         ? calendars.map((c) => c.id === saved.id ? saved : c) : [...calendars, saved];
-      if (!isAuthenticated) localStorage.setItem(calendarsKey, JSON.stringify(next));
       setCalendars(next);
       if (isNew) setEditing((event) => event ? { ...event, category: saved.id, color: "" } : null);
       setNotice("Calendario guardado.");
@@ -439,7 +418,7 @@ export default function Calendar() {
           <small>
             {event.start} – {event.end}
             {event.location && ` · ${event.location}`}
-            {isAdmin && event.owner && ` · ${event.owner}`}
+            {isAdmin && event.owner && ` · ${event.owner === "public-link" ? "Visitante" : event.owner}`}
           </small>
         )}
       </span>
@@ -469,7 +448,7 @@ export default function Calendar() {
         <div className={s.workspace}>
           <span className={s.workspaceAvatar}>M</span>
           <span>
-            Mi espacio<small>Un lugar para tus planes</small>
+            Reservas<small>Un calendario para todos</small>
           </span>
           <Icon name="chevron" size={15} />
         </div>
@@ -481,7 +460,7 @@ export default function Calendar() {
           <Icon name="plus" /> Crear reserva
         </button>
         <div className={s.sideSection}>
-          <span className={s.eyebrow}>MI ESPACIO</span>
+          <span className={s.eyebrow}>CALENDARIO COMPARTIDO</span>
           <button
             className={s.navActive}
             onClick={() => {
@@ -492,7 +471,7 @@ export default function Calendar() {
             <Icon name="calendar" /> Calendario <span className={s.smallDot} />
           </button>
           <button className={s.navItem} onClick={() => setView("agenda")}>
-            <Icon name="list" /> Mi agenda <span>{monthCount}</span>
+            <Icon name="list" /> Agenda <span>{monthCount}</span>
           </button>
         </div>
         <section className={s.miniCalendar} aria-label="Calendario pequeño">
@@ -543,10 +522,10 @@ export default function Calendar() {
         </section>
         <section className={s.sideSection}>
           <div className={s.sectionTitle}>
-            <span className={s.eyebrow}>MIS CALENDARIOS</span>
-            <button aria-label="Personalizar calendarios" onClick={openCalendars} disabled={!loaded}>
+            <span className={s.eyebrow}>CALENDARIOS</span>
+            {isAdmin && <button aria-label="Personalizar calendarios" onClick={openCalendars} disabled={!loaded}>
               <Icon name="plus" size={16} />
-            </button>
+            </button>}
           </div>
           <div className={s.categories}>
             {calendars.map(({ id: key, label }) => (
@@ -596,9 +575,9 @@ export default function Calendar() {
               {session?.user?.name?.charAt(0) || "T"}
             </span>
             <span>
-              {session?.user?.name || "Tu calendario"}
+              {session?.user?.name || "Calendario compartido"}
               <small>
-                {isAuthenticated ? "Cerrar sesión" : "Iniciar sesión"}
+                {isAuthenticated ? "Cerrar sesión" : "Acceso del administrador"}
               </small>
             </span>
             <Icon name={isAuthenticated ? "logout" : "arrow"} size={17} />
@@ -608,18 +587,18 @@ export default function Calendar() {
       <div className={s.main}>
         <header className={s.topbar}>
           <div className={s.breadcrumb}>
-            Mi espacio <span>/</span> <strong>Calendario</strong>
+            Reservas <span>/</span> <strong>Calendario</strong>
           </div>
           <div className={s.topRight}>
-            <button className={s.manageButton} onClick={openCalendars} disabled={!loaded}>
+            {isAdmin && <button className={s.manageButton} onClick={openCalendars} disabled={!loaded}>
               <Icon name="grid" size={14} /> Calendarios
-            </button>
+            </button>}
             <span className={s.modeLabel}><span className={s.liveDot} />
-            {isAdmin ? "Administrador" : isAuthenticated ? "Tu espacio personal" : "Vista de prueba"}</span>
+            {isAdmin ? "Administrador" : "Reservas públicas"}</span>
             <span className={s.topDivider} />
             <button
               className={s.avatar}
-              aria-label="Abrir cuenta"
+              aria-label="Acceso del administrador"
               onClick={() => setLoginOpen(true)}
             >
               {session?.user?.name?.charAt(0) || "T"}
@@ -635,7 +614,7 @@ export default function Calendar() {
               <h1>
                 {isAdmin ? "Administrar reservas" : "Tu tiempo, a tu manera"}<span>.</span>
               </h1>
-              <p>{isAdmin ? "Reservas de todos los usuarios. Puedes crear, editar y eliminar." : "Tus planes, tus momentos. Todo en un solo lugar."}</p>
+              <p>{isAdmin ? "Puedes crear, editar y eliminar todas las reservas." : "Consulta las reservas y crea la tuya sin iniciar sesión."}</p>
             </div>
             <button
               className={s.newEvent}
@@ -645,6 +624,8 @@ export default function Calendar() {
               <Icon name="plus" size={18} /> Nueva reserva
             </button>
           </div>
+          <button type="button" className={s.manageLink} disabled={saving || calendarSaving}
+            onClick={() => setRefresh((value) => value + 1)}>Actualizar reservas</button>
           <div className={s.toolbar}>
             <div className={s.monthNavigation}>
               <h2>
@@ -940,16 +921,10 @@ export default function Calendar() {
               hecho para tus días <span className={s.sparkle}>✳</span>
             </span>
           </footer>
-          {!isAuthenticated && (
-            <div className={s.demoNote}>
-              Estás explorando reservas de ejemplo. Tus cambios se guardan en
-              este navegador.{" "}
-              <button onClick={() => setLoginOpen(true)}>
-                Inicia sesión para tener tu calendario personal{" "}
-                <Icon name="arrow" size={13} />
-              </button>
-            </div>
-          )}
+          <div className={s.demoNote}>
+            Las reservas son públicas. Cualquier persona con el enlace puede ver sus datos y crear una nueva.
+            Solo el administrador puede editar o eliminar reservas.
+          </div>
         </div>
       </div>
       <dialog
@@ -967,13 +942,13 @@ export default function Calendar() {
         {editing && (editing.id && !(isAdmin && adminEditing) ? (
           <section>
             <div className={s.dialogHeader}>
-              <span className={s.kicker}>TU RESERVA</span>
+              <span className={s.kicker}>RESERVA</span>
               <button type="button" aria-label="Cerrar reserva" onClick={closeEditor}><Icon name="close" /></button>
             </div>
             <h2>Datos de la reserva<span>.</span></h2>
             <dl className={s.reservationDetails}>
               <div><dt>Nombre de la reserva</dt><dd>{editing.title}</dd></div>
-              {isAdmin && editing.owner && <div><dt>Creada por</dt><dd>{editing.owner}</dd></div>}
+              {isAdmin && editing.owner && <div><dt>Creada por</dt><dd>{editing.owner === "public-link" ? "Visitante" : editing.owner}</dd></div>}
               <div><dt>Fecha</dt><dd>{format(fromKey(editing.date), { day: "numeric", month: "long", year: "numeric" })}</dd></div>
               <div><dt>Hora de inicio</dt><dd>{editing.start}</dd></div>
               <div><dt>Hora de fin</dt><dd>{editing.end}</dd></div>
@@ -1009,7 +984,7 @@ export default function Calendar() {
               {editing.id ? "Editar reserva" : "Una nueva reserva"}
               <span>.</span>
             </h2>
-            <p className={s.dialogIntro}>{editing.id ? "Los cambios conservarán al creador original de la reserva." : "Completa los datos de tu reserva."}</p>
+            <p className={s.dialogIntro}>{editing.id ? "Los cambios conservarán al creador original de la reserva." : "Completa los datos. El nombre, lugar y notas serán visibles para todos."}</p>
             <label>
               Nombre de la reserva
               <input
@@ -1148,7 +1123,7 @@ export default function Calendar() {
             </div>
             <div className={s.calendarPreview} style={categoryStyle(calendarDraft.id,
               /^#[0-9a-fA-F]{6}$/.test(calendarDraft.color) ? calendarDraft.color : "#387c65")}>
-              <span className={s.eventDot} />{calendarDraft.label || "Tu calendario"}
+              <span className={s.eventDot} />{calendarDraft.label || "Calendario compartido"}
             </div>
             {calendarError && <p className={s.error} role="alert">{calendarError}</p>}
             <div className={s.dialogActions}>
@@ -1177,13 +1152,13 @@ export default function Calendar() {
           </button>
         </div>
         <h2>
-          {isAuthenticated ? "Tu espacio personal" : "Tus días empiezan aquí"}
+          {isAuthenticated ? "Administración" : "Acceso del administrador"}
           <span>.</span>
         </h2>
         <p>
           {isAuthenticated
             ? `Sesión iniciada como ${session?.user?.email}.`
-            : "Inicia sesión para guardar tus eventos en tu cuenta y consultarlos desde cualquier dispositivo."}
+            : "Este acceso es solo para el administrador. Para crear o consultar reservas, cierra esta ventana."}
         </p>
         {isAuthenticated ? (
           <button
@@ -1197,7 +1172,7 @@ export default function Calendar() {
             {typeof router.query.error === "string" && (
               <p role="alert" className={s.error}>
                 No pudimos iniciar tu sesión. Inténtalo de nuevo o continúa en
-                la vista de prueba.
+                el calendario público.
               </p>
             )}
             {providerError ? (
@@ -1210,7 +1185,7 @@ export default function Calendar() {
             ) : providers.length === 0 ? (
               <p>
                 El inicio de sesión aún no está disponible. Puedes continuar
-                explorando la vista de prueba.
+                explorando el calendario público.
               </p>
             ) : null}
             {providers?.includes("google") && (
@@ -1231,7 +1206,7 @@ export default function Calendar() {
                 <Icon name="arrow" size={18} />
               </button>
             )}
-            <small>Los eventos de prueba permanecen en este navegador.</small>
+            <small>El acceso requiere el correo del administrador configurado.</small>
           </>
         )}
       </dialog>

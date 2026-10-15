@@ -17,10 +17,14 @@ function harness() {
   const records = [];
   const calls = [];
   let email = owner;
+  const env = { NEXTAUTH_URL: "https://calendar.example.test", CALENDAR_ADMIN_EMAILS: owner };
+  const permissions = {};
+  vm.runInNewContext(transpile("lib/calendarPermissions.ts"), { exports: permissions, process: { env } });
   const modules = {
-    "next-auth/jwt": { getToken: async () => email ? { email } : null },
+    "next-auth/jwt": { getToken: async () => email ? { email, calendarEmailVerified: true } : null },
     "lib/dbConnect": async () => calls.push(["connect"]),
     "lib/calendar": domain,
+    "lib/calendarPermissions": permissions,
     "models/calendar": {
       find(query) {
         calls.push(["find", query]);
@@ -38,7 +42,7 @@ function harness() {
   };
   const exports = {};
   vm.runInNewContext(code, {
-    exports, require: n => modules[n], process: { env: { NEXTAUTH_URL: "https://calendar.example.test" } },
+    exports, require: n => modules[n], process: { env },
   });
   return {
     calls, setEmail: value => { email = value; },
@@ -54,10 +58,10 @@ function harness() {
     },
   };
 }
-test("calendar API denies anonymous, cross-origin and malformed writes before storage", async () => {
+test("public reads use defaults; anonymous, cross-origin and malformed writes never touch storage", async () => {
   const h = harness();
   h.setEmail(null);
-  assert.equal((await h.invoke("GET")).statusCode, 401);
+  assert.equal((await h.invoke("GET")).statusCode, 200);
   assert.equal((await h.invoke("PUT", calendar)).statusCode, 401);
   h.setEmail(owner);
   assert.equal((await h.invoke("PUT", calendar, { origin: "https://other.example.test" })).statusCode, 403);
@@ -66,7 +70,7 @@ test("calendar API denies anonymous, cross-origin and malformed writes before st
   assert.equal((await h.invoke("DELETE", calendar)).statusCode, 405);
   assert.equal(h.calls.length, 0);
 });
-test("custom calendars, names and colors are isolated across accounts and reloads", async () => {
+test("only the administrator can customize calendars; other accounts cannot change them", async () => {
   const h = harness();
   const saved = await h.invoke("PUT", { ...calendar, owner: "victim@example.test", _id: "injected" });
   assert.equal(saved.statusCode, 200);
@@ -79,7 +83,9 @@ test("custom calendars, names and colors are isolated across accounts and reload
   const second = await h.invoke("GET");
   assert.equal(second.body.length, 4);
   assert.equal(second.headers["Cache-Control"], "no-store");
-  await h.invoke("PUT", { ...calendar, label: "Otro nombre", color: "#000000" });
+  const count = h.calls.length;
+  assert.equal((await h.invoke("PUT", calendar)).statusCode, 403);
+  assert.equal(h.calls.length, count);
   h.setEmail(owner);
   let first = await h.invoke("GET");
   assert.equal(first.body.find(c => c.id === calendar.id).label, "Viajes");
@@ -87,5 +93,4 @@ test("custom calendars, names and colors are isolated across accounts and reload
   first = await h.invoke("GET");
   assert.equal(first.body.length, 5);
   assert.equal(first.body.find(c => c.id === "personal").label, "Mi familia");
-  assert.equal(first.body.find(c => c.id === "personal").color, "#ffffff");
 });

@@ -1,55 +1,52 @@
-# Juntos · Calendario
+# Juntos · Calendario de reservas
 
 Calendario en español construido con Next.js, React, NextAuth y MongoDB.
 
-- Vistas de mes, semana y agenda, navegación por fecha y búsqueda.
-- Crear reservas con nombre, fecha, hora de inicio y fin, lugar, color y notas. Los usuarios pueden crear y consultar sus reservas; los administradores pueden gestionar las reservas de todos los usuarios.
-- Calendarios personalizables: crea los tuyos, cambia los nombres y elige cualquier color. Personal, Trabajo, Bienestar y Social son las opciones iniciales.
-- Elige el color directamente al crear la reserva. Los nombres y colores se guardan por cuenta; en la vista de prueba, solo en el navegador.
-- Eventos privados por cuenta, con acceso mediante Google o GitHub.
-- Vista de prueba con ejemplos y almacenamiento local, separada de los eventos de la cuenta.
-- Diseño adaptable a dispositivos móviles y formularios accesibles con teclado.
+- Cualquier visitante abre el enlace, consulta todas las reservas y crea una nueva sin cuenta.
+- Nombre de la reserva, fecha, hora de inicio y fin, lugar, color libre y notas.
+- Los datos de las reservas son públicos. El formulario lo indica antes de guardar.
+- Las reservas guardadas se abren como datos de consulta. Solo el administrador puede editarlas o eliminarlas.
+- Un único administrador inicia sesión con su cuenta de Google o GitHub. Su correo verificado se configura en el servidor.
+- Las reservas se guardan en MongoDB y se comparten entre dispositivos. No se guardan en localStorage ni se sustituyen por ejemplos si falla la base de datos.
+- Vistas de mes, semana y agenda, búsqueda, filtros y diseño adaptable a móviles.
+- **Actualizar reservas** vuelve a consultar los cambios de otros visitantes. También se consultan al recargar la página.
 
 ## Desarrollo
 
-El repositorio usa Node 24, Yarn 1.22.22, Next.js 15 y NextAuth 4.24. Instala Node 24 y ejecuta:
+Node 24, Yarn 1.22.22, Next.js 15 y NextAuth 4.24:
 
 ```sh
 corepack yarn install --frozen-lockfile
+corepack yarn config:init
 corepack yarn dev
 ```
 
-Abre http://localhost:3000. Sin credenciales puedes explorar la vista de prueba; sus cambios se guardan solo en el navegador y no se importan a una cuenta.
+Completa `.env.local` siguiendo la [guía para publicar y activar al administrador](docs/activar-cuentas.md). No subas este archivo a GitHub.
 
-## Activar las cuentas y el guardado en la nube
+Abre http://localhost:3000. Para consultar y guardar reservas compartidas necesitas una base MongoDB accesible; sin ella se muestra un error y no se simula un guardado local.
 
-Sigue la [guía paso a paso para activar cuentas](docs/activar-cuentas.md). Puedes generar la configuración privada local con `corepack yarn config:init` y revisar lo pendiente con `corepack yarn config:check`.
+## Configuración
 
-Configura en `.env.local`:
+- `MONGODB_URI`: conexión MongoDB para las reservas compartidas.
+- `NEXTAUTH_URL`: URL pública HTTPS sin ruta ni barra final; en local, `http://localhost:3000`.
+- `NEXT_AUTH_SECRET`: secreto aleatorio estable de al menos 32 caracteres para firmar sesiones.
+- `CALENDAR_ADMIN_EMAILS`: **un único correo**, el de la cuenta verificada del administrador. Se conserva el nombre de la variable por compatibilidad. Si está vacío o contiene varios correos, nadie obtiene permisos de administrador.
+- `GITHUB_ID` y `GITHUB_SECRET`, o `GOOGLE_ID` y `GOOGLE_SECRET`: al menos un proveedor para el acceso del administrador. Los visitantes no necesitan OAuth.
 
-- `MONGODB_URI`: URI de tu base MongoDB.
-- `NEXT_AUTH_SECRET`: secreto aleatorio para firmar las sesiones (por ejemplo, generado con `openssl rand -base64 32`).
-- `NEXTAUTH_URL`: URL de la aplicación, sin barra final (en desarrollo, `http://localhost:3000`).
-- `GOOGLE_ID` y `GOOGLE_SECRET`: credenciales de una aplicación OAuth de Google (opcional si usas GitHub).
-- `GITHUB_ID` y `GITHUB_SECRET`: credenciales de una aplicación OAuth de GitHub (opcional si usas Google).
+El acceso de otras cuentas se rechaza. Las APIs comprueban el token firmado, la verificación del proveedor y el correo configurado en cada modificación. Los visitantes solo pueden consultar y crear; no pueden asignarse permisos ni propietarios. Los correos de cuentas anteriores no se exponen en las respuestas públicas.
 
-Hace falta al menos uno de los dos proveedores. Cada botón de acceso aparece cuando están configuradas sus dos credenciales.
+Las reservas existentes pasan a ser visibles en el calendario compartido; las antiguas muestras guardadas únicamente en un navegador no se importan. Los datos anteriores siguen siendo editables por el administrador. Las reservas creadas sin cuenta aparecen como **Visitante** en la administración.
 
-Registra las URL de retorno `${NEXTAUTH_URL}/api/auth/callback/google` y `${NEXTAUTH_URL}/api/auth/callback/github` en los respectivos proveedores. No subas `.env.local` a GitHub. En producción utiliza HTTPS y configura las variables en tu plataforma de despliegue.
-
-Configura `CALENDAR_ADMIN_EMAILS` en Vercel con el correo de tu cuenta y vuelve a iniciar sesión para activar la administración (requiere correo verificado por Google o GitHub). Consulta la sección de administrador en la guía de cuentas.
-
-Cada evento se guarda en MongoDB con el correo de la sesión verificada por NextAuth. Las consultas de usuarios normales se limitan a su cuenta; el administrador puede ver todas las reservas y modificarlas; el cliente no puede elegir al propietario. Las fechas y horas se muestran en la hora local y los eventos comienzan y terminan el mismo día. No incluye recurrencias, invitaciones ni sincronización con Google Calendar.
-
-Las variables `CLOUDINARY_*` del ejemplo pertenecen a las funciones sociales originales del repositorio; el calendario no las necesita.
+Fechas y horas locales, eventos que comienzan y terminan el mismo día. No incluye recurrencias, invitaciones, bloqueo de horarios coincidentes ni sincronización con Google Calendar. Las variables `CLOUDINARY_*` corresponden a funciones sociales originales y no se necesitan para el calendario.
 
 ## Comprobaciones
 
 ```sh
+corepack yarn config:check
 corepack yarn lint
 corepack yarn tsc --noEmit
 corepack yarn build
 node --test tests/*.test.cjs
 ```
 
-El inicio de sesión real necesita las credenciales OAuth y una base MongoDB accesible.
+Las pruebas de permisos usan cuentas y almacenamiento simulados; el acceso OAuth y MongoDB reales se comprueban con la configuración del despliegue.

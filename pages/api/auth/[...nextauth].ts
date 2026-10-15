@@ -30,6 +30,10 @@ export default NextAuth({
   pages: { error: "/" },
   secret: process.env.NEXT_AUTH_SECRET,
   callbacks: {
+    // Visitors reserve without accounts. Only the configured administrator signs in.
+    async signIn({ user }) {
+      return isCalendarAdminEmail(user.email);
+    },
     async jwt({ token, account, profile }) {
       if (account) {
         token.calendarEmailVerified = false;

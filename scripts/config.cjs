@@ -84,8 +84,8 @@ check(
   ["GITHUB", "GOOGLE"].some((p) => present(`${p}_ID`) && present(`${p}_SECRET`))
 );
 if (present("CALENDAR_ADMIN_EMAILS")) {
-  check("CALENDAR_ADMIN_EMAILS (correos separados por coma)",
-    env.CALENDAR_ADMIN_EMAILS.split(",").every((email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())));
+  check("CALENDAR_ADMIN_EMAILS (un solo correo de administrador)",
+    /^[^\s@,]+@[^\s@,]+\.[^\s@,]+$/.test(env.CALENDAR_ADMIN_EMAILS.trim()));
 }
 console.log(
   "\nEsta comprobación valida la configuración; no conecta con MongoDB ni con los proveedores OAuth. No se muestran secretos."

@@ -5,7 +5,7 @@ import dbConnect from "lib/dbConnect";
 import Event from "models/event";
 import Calendar from "models/calendar";
 import { defaultCalendars, validEvent } from "lib/calendar";
-import { canManageReservations } from "lib/calendarPermissions";
+import { canManageReservations, PUBLIC_RESERVATION_OWNER } from "lib/calendarPermissions";
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   res.setHeader("Cache-Control", "no-store");
@@ -19,10 +19,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
   try {
     const token = await getToken({ req, secret: process.env.NEXT_AUTH_SECRET });
-    if (!token?.email) return res.status(401).json({ error: "Inicia sesión para acceder a tus reservas." });
     const admin = canManageReservations(token);
     if ((req.method === "PUT" || req.method === "DELETE") && !admin) {
-      return res.status(403).json({ error: "Solo el administrador puede modificar o eliminar reservas." });
+      return res.status(token?.email ? 403 : 401).json({ error: "Solo el administrador puede modificar o eliminar reservas." });
     }
     if ((req.method === "PUT" || req.method === "DELETE") &&
       (typeof req.body?.id !== "string" || !mongoose.isValidObjectId(req.body.id))) {
@@ -39,7 +38,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       ...(admin ? { owner: event.owner } : {}),
     });
     if (req.method === "GET") {
-      const events = await Event.find(admin ? {} : { owner: token.email }).sort({ date: 1, start: 1 }).lean();
+      const events = await Event.find({}).sort({ date: 1, start: 1 }).lean();
       return res.status(200).json(events.map(serialize));
     }
     if (req.method === "DELETE") {
@@ -49,7 +48,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // An administrator keeps the original creator when editing another account's reservation.
     const existing = req.method === "PUT" ? await Event.findOne({ _id: req.body.id }).lean() : null;
     if (req.method === "PUT" && !existing) return res.status(404).json({ error: "Reserva no encontrada." });
-    const owner = existing ? existing.owner : token.email;
+    const owner = existing ? existing.owner : admin ? token!.email : PUBLIC_RESERVATION_OWNER;
     if (!defaultCalendars.some((c) => c.id === req.body.category) &&
       !(await Calendar.exists({ owner, calendarId: req.body.category }))) {
       return res.status(400).json({ error: "El calendario no pertenece al creador de la reserva." });

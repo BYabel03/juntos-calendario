@@ -40,7 +40,9 @@ function harness({ email = owner, token = true, calendarExists = true,
     },
     create: async (data) => {
       calls.push(["create", data]);
-      return { _id: id, ...data };
+      const record = { _id: id, ...data };
+      records.push(record);
+      return record;
     },
     findOne: (query) => {
       calls.push(["findOne", query]);
@@ -97,18 +99,29 @@ function harness({ email = owner, token = true, calendarExists = true,
   }
   return { calls, invoke, setAdmins: (value) => { env.CALENDAR_ADMIN_EMAILS = value; } };
 }
-test("unauthenticated requests never touch storage", async () => {
+test("anonymous visitors cannot edit or delete reservations", async () => {
   const h = harness({ token: false });
-  for (const method of ["GET", "POST", "PUT", "DELETE"])
+  for (const method of ["PUT", "DELETE"])
     assert.equal((await h.invoke(method, event)).statusCode, 401);
   assert.equal(h.calls.length, 0);
 });
-test("reads are limited to the verified account", async () => {
-  const h = harness();
-  const res = await h.invoke("GET");
-  assert.equal(res.statusCode, 200);
-  assert.equal(h.calls[1][1].owner, owner);
-  assert.equal(res.headers["Cache-Control"], "no-store");
+test("anonymous visitors create shared reservations and read every owner's details after reload", async () => {
+  const records = [{ ...event, _id: "507f1f77bcf86cd799439012", owner: "old-account@example.test" }];
+  const visitor = harness({ token: false, records });
+  const created = await visitor.invoke("POST", { ...event, color: "#123456", owner: "forged@example.test" });
+  assert.equal(created.statusCode, 201);
+  assert.equal(created.body.owner, undefined);
+  assert.equal(records[1].owner, "public-link");
+  const otherVisitor = harness({ token: false, records });
+  const listed = await otherVisitor.invoke("GET");
+  assert.equal(listed.statusCode, 200);
+  assert.equal(listed.body.length, 2);
+  assert.equal(listed.body[1].color, "#123456");
+  assert.equal(listed.body[0].location, "Park");
+  assert.equal(listed.body[0].description, "Notes");
+  assert.equal(listed.body[0].owner, undefined);
+  assert.equal(Object.keys(otherVisitor.calls[1][1]).length, 0);
+  assert.equal(listed.headers["Cache-Control"], "no-store");
 });
 test("client cannot assign event ownership or extra fields", async () => {
   const h = harness();
@@ -119,7 +132,7 @@ test("client cannot assign event ownership or extra fields", async () => {
   });
   assert.equal(res.statusCode, 201);
   const saved = h.calls[1][1];
-  assert.equal(saved.owner, owner);
+  assert.equal(saved.owner, "public-link");
   assert.equal(saved._id, undefined);
   assert.equal(res.body.owner, undefined);
   assert.equal(res.body.id, id);
@@ -153,12 +166,12 @@ test("rejects malformed dates, hours and cross-origin writes before storage", as
   assert.equal((await h.invoke("PATCH", event)).statusCode, 405);
 });
 
-test("custom calendar and event colors persist only within the verified account", async () => {
+test("custom calendar validation uses server-assigned creator and preserves arbitrary colors", async () => {
   const h = harness();
   const res = await h.invoke("POST", { ...event, category: "custom-123", color: "#ff12AB" });
   assert.equal(res.statusCode, 201);
   assert.equal(h.calls[1][0], "calendar");
-  assert.equal(h.calls[1][1].owner, owner);
+  assert.equal(h.calls[1][1].owner, "public-link");
   assert.equal(h.calls[1][1].calendarId, "custom-123");
   assert.equal(res.body.category, "custom-123");
   assert.equal(res.body.color, "#ff12AB");
@@ -170,13 +183,13 @@ test("custom calendar and event colors persist only within the verified account"
   assert.equal(invalid.calls.length, 0);
 });
 
-test("only a verified, configured administrator can list all owners", async () => {
+test("only one configured verified administrator gets creator identities or write permissions", async () => {
   const records = [{ ...event, _id: id, owner }, { ...event, _id: "507f1f77bcf86cd799439012", owner: "second@example.test" }];
   const user = harness({ records });
   const own = await user.invoke("GET");
-  assert.equal(own.body.length, 1);
+  assert.equal(own.body.length, 2);
   assert.equal(own.body[0].owner, undefined);
-  const admin = harness({ email: "ADMIN@example.test", verified: true, adminEmails: " other@example.test, admin@example.test ", records });
+  const admin = harness({ email: "ADMIN@example.test", verified: true, adminEmails: " admin@example.test ", records });
   const all = await admin.invoke("GET");
   assert.equal(all.body.length, 2);
   assert.equal(all.body[0].owner, owner);
@@ -185,6 +198,7 @@ test("only a verified, configured administrator can list all owners", async () =
     { email: "admin@example.test", verified: false },
     { email: "admin@example.test", verified: true, adminEmails: "" },
     { email: "admin@example.test.evil", verified: true },
+    { email: "admin@example.test", verified: true, adminEmails: "admin@example.test,second@example.test" },
   ]) {
     const denied = harness(config);
     assert.equal((await denied.invoke("PUT", { ...event, id })).statusCode, 403);
@@ -219,4 +233,11 @@ test("admin writes validate inputs and revocation takes effect on the next reque
   h.setAdmins("");
   assert.equal((await h.invoke("DELETE", { id })).statusCode, 403);
   assert.equal(h.calls.length, 0);
+});
+
+test("admin creates own reservations while public clients cannot forge admin ownership", async () => {
+  const admin = harness({ email: "admin@example.test", verified: true });
+  const response = await admin.invoke("POST", { ...event, owner: "forged@example.test" });
+  assert.equal(response.statusCode, 201);
+  assert.equal(response.body.owner, "admin@example.test");
 });
