@@ -6,7 +6,11 @@ import { signIn, signOut, useSession } from "next-auth/react";
 import {
   addDays,
   CalendarEvent,
-  categories,
+  colorAppearance,
+  defaultCalendars,
+  mergeCalendars,
+  UserCalendar,
+  validCalendar,
   Category,
   dateKey,
   demoEvents,
@@ -107,13 +111,9 @@ function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
 }
 const format = (date: Date, options: Intl.DateTimeFormatOptions) =>
   date.toLocaleDateString("es-ES", options);
-const categoryStyle = (category: Category): CSSProperties =>
-  ({
-    "--event-color": categories[category].color,
-    "--event-bg": categories[category].background,
-  } as CSSProperties);
 const weekdays = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
 const storageKey = "juntos-calendar-demo-v1";
+const calendarsKey = "juntos-calendar-options-demo-v1";
 
 export default function Calendar() {
   const { data: session, status } = useSession();
@@ -122,6 +122,13 @@ export default function Calendar() {
   const [cursor, setCursor] = useState(new Date(2026, 0, 1, 12));
   const [selected, setSelected] = useState("");
   const [view, setView] = useState<"month" | "week" | "agenda">("month");
+  const [calendars, setCalendars] = useState<UserCalendar[]>(defaultCalendars);
+  const [calendarManager, setCalendarManager] = useState(false);
+  const [calendarDraft, setCalendarDraft] = useState<UserCalendar | null>(null);
+  const [calendarSaving, setCalendarSaving] = useState(false);
+  const [calendarError, setCalendarError] = useState("");
+  const calendarRef = useRef<NativeDialog>(null);
+  const calendarTriggerRef = useRef<HTMLElement | null>(null);
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [hidden, setHidden] = useState<Category[]>([]);
   const [query, setQuery] = useState("");
@@ -149,6 +156,12 @@ export default function Calendar() {
   useEffect(() => {
     const scope = ++scopeRef.current;
     setEditing(null);
+    setCalendarManager(false);
+    setCalendarDraft(null);
+    setCalendarSaving(false);
+    setCalendarError("");
+    setCalendars(defaultCalendars);
+    setHidden([]);
     setSaving(false);
     setNotice("");
     setLoaded(false);
@@ -157,16 +170,18 @@ export default function Calendar() {
     const abort = new AbortController();
     setError("");
     if (isAuthenticated) {
-      fetch("/api/events", { signal: abort.signal })
-        .then(async (res) => {
-          if (!res.ok)
-            throw new Error(
-              "No pudimos cargar tus eventos. Comprueba la conexión y vuelve a intentarlo."
-            );
-          return res.json();
-        })
-        .then((data) => {
+      Promise.all(["/api/events", "/api/calendars"].map(async (url) => {
+        const res = await fetch(url, { signal: abort.signal });
+        if (!res.ok) throw new Error("No pudimos cargar tu calendario. Comprueba la conexión y vuelve a intentarlo.");
+        return res.json();
+      }))
+        .then(([data, savedCalendars]) => {
           if (scope !== scopeRef.current) return;
+          if (!Array.isArray(data) || !data.every((e) => e && typeof e.id === "string" && validEvent(e)) ||
+            !Array.isArray(savedCalendars) || !savedCalendars.every(validCalendar)) {
+            throw new Error("No pudimos leer tus calendarios.");
+          }
+          setCalendars(mergeCalendars(savedCalendars));
           setEvents(data);
           setLoaded(true);
         })
@@ -176,11 +191,15 @@ export default function Calendar() {
         });
     } else {
       try {
+        const savedOptions = localStorage.getItem(calendarsKey);
+        const options = savedOptions ? JSON.parse(savedOptions) : [];
+        if (!Array.isArray(options) || !options.every(validCalendar)) throw new Error();
+        setCalendars(mergeCalendars(options));
         const saved = localStorage.getItem(storageKey);
         const data = saved ? JSON.parse(saved) : demoEvents(today);
         if (
           !Array.isArray(data) ||
-          !data.every((e) => typeof e.id === "string" && validEvent(e))
+          !data.every((e) => e && typeof e.id === "string" && validEvent(e))
         )
           throw new Error();
         setEvents(data);
@@ -201,6 +220,10 @@ export default function Calendar() {
     if (editing && !dialogRef.current?.open) dialogRef.current?.showModal();
     if (!editing && dialogRef.current?.open) dialogRef.current.close();
   }, [editing]);
+  useEffect(() => {
+    if (calendarManager) calendarRef.current?.showModal();
+    else calendarRef.current?.close();
+  }, [calendarManager]);
   useEffect(() => {
     if (loginOpen) loginRef.current?.showModal();
     else loginRef.current?.close();
@@ -274,7 +297,8 @@ export default function Calendar() {
             end: "10:00",
             location: "",
             description: "",
-            category: "trabajo",
+            category: calendars[0].id,
+            color: "",
           }
     );
   }
@@ -284,7 +308,7 @@ export default function Calendar() {
     triggerRef.current?.focus();
   }
   async function persist(event: CalendarEvent, remove = false) {
-    if (saving || !loaded) return;
+    if (saving || calendarSaving || !loaded) return;
     const scope = scopeRef.current;
     setSaving(true);
     setError("");
@@ -338,11 +362,66 @@ export default function Calendar() {
   function update(field: keyof CalendarEvent, value: string) {
     setEditing((event) => (event ? { ...event, [field]: value } : null));
   }
+  function categoryStyle(category: Category, override?: string): CSSProperties {
+    const calendar = calendars.find((c) => c.id === category) || defaultCalendars[0];
+    const appearance = colorAppearance(override || calendar.color);
+    return { "--event-color": appearance.color, "--event-bg": appearance.background,
+      "--event-text": appearance.text, "--event-ink": appearance.ink } as CSSProperties;
+  }
+  function openCalendars() {
+    calendarTriggerRef.current = document.activeElement as HTMLElement;
+    setCalendarError("");
+    setCalendarDraft(null);
+    setCalendarManager(true);
+  }
+  function closeCalendars() {
+    if (calendarSaving) return;
+    setCalendarManager(false);
+    calendarTriggerRef.current?.focus();
+  }
+  async function saveCalendar(e: FormEvent) {
+    e.preventDefault();
+    if (calendarSaving || saving || !loaded || !calendarDraft) return;
+    if (!validCalendar(calendarDraft)) {
+      setCalendarError("Escribe un nombre y elige un color válido.");
+      return;
+    }
+    const scope = scopeRef.current;
+    const isNew = !calendars.some((c) => c.id === calendarDraft.id);
+    setCalendarSaving(true);
+    setCalendarError("");
+    try {
+      let saved = { ...calendarDraft, label: calendarDraft.label.trim() };
+      if (isAuthenticated) {
+        const response = await fetch("/api/calendars", {
+          method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(saved),
+        });
+        if (!response.ok) {
+          const data = await response.json();
+          throw new Error(data.error || "No se pudo guardar el calendario.");
+        }
+        saved = await response.json();
+        if (!validCalendar(saved)) throw new Error("No se pudo leer el calendario guardado.");
+      }
+      if (scope !== scopeRef.current) return;
+      const next = calendars.some((c) => c.id === saved.id)
+        ? calendars.map((c) => c.id === saved.id ? saved : c) : [...calendars, saved];
+      if (!isAuthenticated) localStorage.setItem(calendarsKey, JSON.stringify(next));
+      setCalendars(next);
+      if (isNew) setEditing((event) => event ? { ...event, category: saved.id, color: "" } : null);
+      setNotice("Calendario guardado.");
+      setCalendarDraft(null);
+    } catch (err) {
+      if (scope === scopeRef.current) setCalendarError(err instanceof Error ? err.message : "No se pudo guardar el calendario.");
+    } finally {
+      if (scope === scopeRef.current) setCalendarSaving(false);
+    }
+  }
   const eventButton = (event: CalendarEvent, compact = false) => (
     <button
       key={event.id}
       className={compact ? s.eventChip : s.eventCard}
-      style={categoryStyle(event.category)}
+      style={categoryStyle(event.category, event.color)}
       onClick={() => openEvent(event)}
       title={`${event.start} · ${event.title}`}
     >
@@ -457,10 +536,12 @@ export default function Calendar() {
         <section className={s.sideSection}>
           <div className={s.sectionTitle}>
             <span className={s.eyebrow}>MIS CALENDARIOS</span>
-            <Icon name="grid" size={14} />
+            <button aria-label="Personalizar calendarios" onClick={openCalendars} disabled={!loaded}>
+              <Icon name="plus" size={16} />
+            </button>
           </div>
           <div className={s.categories}>
-            {(Object.keys(categories) as Category[]).map((key) => (
+            {calendars.map(({ id: key, label }) => (
               <label key={key} style={categoryStyle(key)}>
                 <input
                   type="checkbox"
@@ -476,7 +557,7 @@ export default function Calendar() {
                 <span className={s.checkbox}>
                   {!hidden.includes(key) && <Icon name="check" size={12} />}
                 </span>
-                {categories[key].label}
+                <span className={s.calendarName}>{label}</span>
                 <span className={s.categoryCount}>
                   {events.filter((e) => e.category === key).length}
                 </span>
@@ -522,8 +603,11 @@ export default function Calendar() {
             Mi espacio <span>/</span> <strong>Calendario</strong>
           </div>
           <div className={s.topRight}>
-            <span className={s.liveDot} />
-            {isAuthenticated ? "Tu espacio personal" : "Vista de prueba"}
+            <button className={s.manageButton} onClick={openCalendars} disabled={!loaded}>
+              <Icon name="grid" size={14} /> Calendarios
+            </button>
+            <span className={s.modeLabel}><span className={s.liveDot} />
+            {isAuthenticated ? "Tu espacio personal" : "Vista de prueba"}</span>
             <span className={s.topDivider} />
             <button
               className={s.avatar}
@@ -813,7 +897,7 @@ export default function Calendar() {
                     key={e.id}
                     className={s.summaryEvent}
                     onClick={() => openEvent(e)}
-                    style={categoryStyle(e.category)}
+                    style={categoryStyle(e.category, e.color)}
                   >
                     <span className={s.summaryTime}>
                       {e.start}
@@ -942,9 +1026,9 @@ export default function Calendar() {
               />
             </label>
             <fieldset>
-              <legend>Calendario y color</legend>
+              <legend>Calendario</legend>
               <div className={s.colorOptions}>
-                {(Object.keys(categories) as Category[]).map((key) => (
+                {calendars.map(({ id: key, label }) => (
                   <label key={key} style={categoryStyle(key)}>
                     <input
                       type="radio"
@@ -959,12 +1043,33 @@ export default function Calendar() {
                       }
                     >
                       <i />
-                      {categories[key].label}
+                      {label}
                     </span>
                   </label>
                 ))}
               </div>
+              <button type="button" className={s.manageLink} onClick={openCalendars} disabled={saving}>
+                <Icon name="plus" size={14} /> Crear o editar calendarios
+              </button>
             </fieldset>
+            <div className={s.formRow}>
+              <label>
+                Color de este evento
+                <input type="color" aria-label="Color de este evento"
+                  value={editing.color && /^#[0-9a-fA-F]{6}$/.test(editing.color)
+                    ? editing.color : calendars.find((c) => c.id === editing.category)?.color || "#387c65"}
+                  onChange={(e) => update("color", e.target.value)} />
+              </label>
+              <label>
+                Código de color del evento
+                <input value={editing.color || ""} maxLength={7} pattern="#[0-9a-fA-F]{6}"
+                  placeholder={calendars.find((c) => c.id === editing.category)?.color || "#387c65"}
+                  onChange={(e) => update("color", e.target.value)} />
+              </label>
+            </div>
+            <button type="button" className={s.manageLink} onClick={() => update("color", "")} disabled={saving}>
+              Usar el color del calendario
+            </button>
             <label>
               Notas <span className={s.optional}>(opcional)</span>
               <textarea
@@ -1006,6 +1111,56 @@ export default function Calendar() {
                 {saving ? "Guardando…" : "Guardar evento"}
                 <Icon name="check" size={16} />
               </button>
+            </div>
+          </form>
+        )}
+      </dialog>
+      <dialog aria-label="Mis calendarios" ref={calendarRef} className={s.dialog}
+        onCancel={(e) => { e.preventDefault(); closeCalendars(); }}
+        onClose={() => { if (!calendarSaving) setCalendarManager(false); }}>
+        <div className={s.dialogHeader}>
+          <span className={s.kicker}>A TU MANERA</span>
+          <button type="button" aria-label="Cerrar calendarios" onClick={closeCalendars} disabled={calendarSaving}><Icon name="close" /></button>
+        </div>
+        <h2>Mis calendarios<span>.</span></h2>
+        <p className={s.dialogIntro}>Elige los nombres y colores que tengan sentido para ti.</p>
+        <div className={s.calendarList}>
+          {calendars.map((calendar) => (
+            <button type="button" key={calendar.id} disabled={calendarSaving}
+              onClick={() => { setCalendarDraft({ ...calendar }); setCalendarError(""); }}
+              aria-label={`Editar calendario ${calendar.label}`}>
+              <i style={{ background: calendar.color }} />
+              <span>{calendar.label}</span><small>Editar</small>
+            </button>
+          ))}
+        </div>
+        <button type="button" className={s.manageLink} disabled={calendarSaving} onClick={() => {
+          setCalendarDraft({ id: crypto.randomUUID(), label: "", color: "#387c65" }); setCalendarError("");
+        }}><Icon name="plus" size={16} /> Nuevo calendario</button>
+        {calendarDraft && (
+          <form onSubmit={saveCalendar} className={s.calendarForm}>
+            <label>Nombre del calendario
+              <input autoFocus required maxLength={60} value={calendarDraft.label} placeholder="Familia, estudios, viajes…"
+                disabled={calendarSaving} onChange={(e) => setCalendarDraft({ ...calendarDraft, label: e.target.value })} />
+            </label>
+            <div className={s.formRow}>
+              <label>Color del calendario
+                <input type="color" value={/^#[0-9a-fA-F]{6}$/.test(calendarDraft.color) ? calendarDraft.color : "#387c65"} disabled={calendarSaving}
+                  onChange={(e) => setCalendarDraft({ ...calendarDraft, color: e.target.value })} />
+              </label>
+              <label>Código de color
+                <input value={calendarDraft.color} maxLength={7} pattern="#[0-9a-fA-F]{6}" required disabled={calendarSaving}
+                  onChange={(e) => setCalendarDraft({ ...calendarDraft, color: e.target.value })} />
+              </label>
+            </div>
+            <div className={s.calendarPreview} style={categoryStyle(calendarDraft.id,
+              /^#[0-9a-fA-F]{6}$/.test(calendarDraft.color) ? calendarDraft.color : "#387c65")}>
+              <span className={s.eventDot} />{calendarDraft.label || "Tu calendario"}
+            </div>
+            {calendarError && <p className={s.error} role="alert">{calendarError}</p>}
+            <div className={s.dialogActions}>
+              <button type="button" className={s.cancel} disabled={calendarSaving} onClick={() => setCalendarDraft(null)}>Cancelar</button>
+              <button type="submit" className={s.newEvent} disabled={calendarSaving}>{calendarSaving ? "Guardando…" : "Guardar calendario"}</button>
             </div>
           </form>
         )}

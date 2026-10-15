@@ -11,9 +11,10 @@ const eventSchema = new Schema(
     description: { type: String, default: "", maxlength: 2000 },
     category: {
       type: String,
-      enum: ["personal", "trabajo", "bienestar", "social"],
+      match: /^[a-z0-9][a-z0-9-]{0,63}$/,
       required: true,
     },
+    color: { type: String, default: "", validate: (value: string) => value === "" || /^#[0-9a-fA-F]{6}$/.test(value) },
   },
   { timestamps: true }
 );

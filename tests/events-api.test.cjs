@@ -25,7 +25,7 @@ const event = {
   category: "personal",
 };
 const id = "507f1f77bcf86cd799439011";
-function harness({ email = owner, token = true } = {}) {
+function harness({ email = owner, token = true, calendarExists = true } = {}) {
   const calls = [];
   const model = {
     find: (query) => {
@@ -51,6 +51,7 @@ function harness({ email = owner, token = true } = {}) {
     mongoose: { isValidObjectId: (value) => /^[a-f0-9]{24}$/.test(value) },
     "lib/dbConnect": async () => calls.push(["connect"]),
     "models/event": model,
+    "models/calendar": { exists: async (query) => { calls.push(["calendar", query]); return calendarExists; } },
     "lib/calendar": domain,
   };
   vm.runInNewContext(code, {
@@ -153,4 +154,21 @@ test("rejects malformed identifiers, dates, hours and cross-origin writes before
   );
   assert.equal(h.calls.length, 0);
   assert.equal((await h.invoke("PATCH", event)).statusCode, 405);
+});
+
+test("custom calendar and event colors persist only within the verified account", async () => {
+  const h = harness();
+  const res = await h.invoke("POST", { ...event, category: "custom-123", color: "#ff12AB" });
+  assert.equal(res.statusCode, 201);
+  assert.equal(h.calls[1][0], "calendar");
+  assert.equal(h.calls[1][1].owner, owner);
+  assert.equal(h.calls[1][1].calendarId, "custom-123");
+  assert.equal(res.body.category, "custom-123");
+  assert.equal(res.body.color, "#ff12AB");
+  const missing = harness({ calendarExists: false });
+  assert.equal((await missing.invoke("POST", { ...event, category: "foreign-123" })).statusCode, 400);
+  assert.equal(missing.calls.filter(c => c[0] === "create").length, 0);
+  const invalid = harness();
+  assert.equal((await invalid.invoke("POST", { ...event, color: "url(invalid)" })).statusCode, 400);
+  assert.equal(invalid.calls.length, 0);
 });

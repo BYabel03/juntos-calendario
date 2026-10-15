@@ -3,7 +3,8 @@ import { getToken } from "next-auth/jwt";
 import mongoose from "mongoose";
 import dbConnect from "lib/dbConnect";
 import Event from "models/event";
-import { validEvent } from "lib/calendar";
+import Calendar from "models/calendar";
+import { defaultCalendars, validEvent } from "lib/calendar";
 
 export default async function handler(
   req: NextApiRequest,
@@ -45,6 +46,11 @@ export default async function handler(
         .json({ error: "Revisa el título, la fecha y las horas del evento." });
     }
     await dbConnect();
+    if ((req.method === "POST" || req.method === "PUT") &&
+      !defaultCalendars.some((c) => c.id === req.body.category) &&
+      !(await Calendar.exists({ owner, calendarId: req.body.category }))) {
+      return res.status(400).json({ error: "Elige uno de tus calendarios." });
+    }
     const serialize = (event: any) => ({
       id: event._id.toString(),
       title: event.title,
@@ -54,6 +60,7 @@ export default async function handler(
       location: event.location,
       description: event.description,
       category: event.category,
+      color: event.color || "",
     });
     if (req.method === "GET") {
       const events = await Event.find({ owner })
@@ -67,7 +74,7 @@ export default async function handler(
         ? res.status(204).end()
         : res.status(404).json({ error: "Evento no encontrado." });
     }
-    const { title, date, start, end, location, description, category } =
+    const { title, date, start, end, location, description, category, color } =
       req.body;
     const data = {
       title: title.trim(),
@@ -77,6 +84,7 @@ export default async function handler(
       location: location.trim(),
       description: description.trim(),
       category,
+      color: color || "",
     };
     const event =
       req.method === "POST"

@@ -4,7 +4,40 @@ export const categories = {
   bienestar: { label: "Bienestar", color: "#bb813a", background: "#fcf0dc" },
   social: { label: "Social", color: "#5687b6", background: "#eaf1fa" },
 };
-export type Category = keyof typeof categories;
+export type Category = string;
+export type UserCalendar = { id: string; label: string; color: string };
+export const defaultCalendars: UserCalendar[] = Object.entries(categories).map(
+  ([id, { label, color }]) => ({ id, label, color })
+);
+export const validCalendarId = (id: unknown): id is string =>
+  typeof id === "string" && /^[a-z0-9][a-z0-9-]{0,63}$/.test(id);
+export const validColor = (color: unknown): color is string =>
+  typeof color === "string" && /^#[0-9a-fA-F]{6}$/.test(color);
+export function validCalendar(value: unknown): value is UserCalendar {
+  if (!value || typeof value !== "object") return false;
+  const c = value as UserCalendar;
+  return validCalendarId(c.id) && typeof c.label === "string" &&
+    c.label.trim().length > 0 && c.label.length <= 60 && validColor(c.color);
+}
+export function mergeCalendars(saved: UserCalendar[]): UserCalendar[] {
+  const merged = new Map(defaultCalendars.map((c) => [c.id, { ...c }]));
+  saved.forEach((c) => merged.set(c.id, c));
+  return Array.from(merged.values());
+}
+// Keep arbitrary chosen colors readable on a light event background.
+export function colorAppearance(color: string) {
+  const rgb = [1, 3, 5].map((i) => parseInt(color.slice(i, i + 2), 16));
+  const luminance = (values: number[]) => values.reduce((sum, value, i) => {
+    const channel = value / 255;
+    return sum + (channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4) * [0.2126, 0.7152, 0.0722][i];
+  }, 0);
+  const tint = rgb.map((v) => Math.round(v * 0.12 + 255 * 0.88));
+  const light = luminance(rgb);
+  const background = "#" + tint.map((v) => v.toString(16).padStart(2, "0")).join("");
+  return { color, background,
+    text: (luminance(tint) + 0.05) / (light + 0.05) >= 4.5 ? color : "#26382f",
+    ink: (light + 0.05) / 0.05 > 1.05 / (light + 0.05) ? "#000000" : "#ffffff" };
+}
 export type CalendarEvent = {
   id: string;
   title: string;
@@ -14,6 +47,7 @@ export type CalendarEvent = {
   location: string;
   description: string;
   category: Category;
+  color?: string;
 };
 export const dateKey = (date: Date) =>
   `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(
@@ -56,7 +90,8 @@ export function validEvent(value: unknown): value is Omit<CalendarEvent, "id"> {
     e.location.length <= 200 &&
     typeof e.description === "string" &&
     e.description.length <= 2000 &&
-    Object.prototype.hasOwnProperty.call(categories, e.category)
+    validCalendarId(e.category) &&
+    (e.color === undefined || e.color === "" || validColor(e.color))
   );
 }
 export function demoEvents(today: Date): CalendarEvent[] {

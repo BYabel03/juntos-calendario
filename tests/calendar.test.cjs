@@ -37,7 +37,7 @@ test("calendar starts on Monday and covers complete weeks including leap day", (
     );
   }
 });
-test("validates event dates, times, lengths, and category allowlist", () => {
+test("validates event dates, times, lengths, and calendar IDs", () => {
   assert.equal(validEvent(event), true);
   for (const patch of [
     { date: "2026-02-30" },
@@ -52,7 +52,9 @@ test("validates event dates, times, lengths, and category allowlist", () => {
     { description: "x".repeat(2001) },
     { category: "__proto__" },
     { category: "toString" },
-    { category: "other" },
+    { category: "" },
+    { category: { $ne: null } },
+    { category: "a".repeat(65) },
   ]) {
     assert.equal(
       validEvent({ ...event, ...patch }),
@@ -68,4 +70,35 @@ test("demo events remain valid around year changes", () => {
   assert.equal(events[0].date, "2026-12-31");
   assert.equal(events[3].date, "2027-01-02");
   assert.equal(dateKey(new Date(2026, 0, 1)), "2026-01-01");
+});
+
+test("custom calendars and colors retain legacy event compatibility", () => {
+  assert.equal(validEvent(event), true);
+  assert.equal(validEvent({ ...event, category: "custom-123", color: "#FF00aa" }), true);
+  assert.equal(validEvent({ ...event, color: "" }), true);
+  for (const color of ["red", "#abc", "#12345678", "url(https://invalid.test)", {}, null])
+    assert.equal(validEvent({ ...event, color }), false);
+  assert.equal(exported.validCalendar({ id: "custom-123", label: "Viajes ✈️", color: "#00aabb" }), true);
+  for (const patch of [{ label: "  " }, { label: "a".repeat(61) }, { id: "__proto__" }, { color: "red" }])
+    assert.equal(exported.validCalendar({ id: "custom-123", label: "Viajes", color: "#00aabb", ...patch }), false);
+  const merged = exported.mergeCalendars([
+    { id: "personal", label: "Familia", color: "#ff0000" },
+    { id: "custom-123", label: "Viajes", color: "#00aabb" },
+  ]);
+  assert.equal(merged.length, 5);
+  assert.equal(merged.find(c => c.id === "personal").label, "Familia");
+  assert.equal(exported.defaultCalendars[0].label, "Personal");
+});
+test("light, dark and saturated custom colors have readable text", () => {
+  function luminance(hex) {
+    return [1,3,5].map(i => parseInt(hex.slice(i,i+2),16)/255).reduce((sum,c,i) =>
+      sum + (c <= 0.04045 ? c/12.92 : ((c+0.055)/1.055)**2.4)*[0.2126,0.7152,0.0722][i],0);
+  }
+  function contrast(a,b) { const x=luminance(a), y=luminance(b);return (Math.max(x,y)+0.05)/(Math.min(x,y)+0.05); }
+  for (const color of ["#ffffff", "#000000", "#ffff00", "#00ffff", "#ff0000", "#9064bc"]) {
+    const result = exported.colorAppearance(color);
+    assert.equal(result.color, color);
+    assert.ok(contrast(result.text, result.background) >= 4.5, color);
+    assert.ok(contrast(result.ink, color) >= 4.5, color);
+  }
 });
