@@ -371,7 +371,7 @@ export default function Calendar() {
         <link rel="icon" type="image/svg+xml" href="/calendar.svg" />
       </Head>
       <aside className={s.sidebar}>
-        <Link href="/">
+        <Link legacyBehavior href="/">
           <a className={s.brand}>
             <span className={s.brandIcon}>
               <Icon name="calendar" size={24} />

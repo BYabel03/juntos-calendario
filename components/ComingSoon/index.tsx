@@ -5,7 +5,7 @@ export default function ComingSoon() {
     <>
       <section className="container">
         <h1 className="headline">Coming soon</h1>
-        <NextLink href="/home">
+        <NextLink legacyBehavior href="/home">
           <a className="btn primary">Go to Home</a>
         </NextLink>
         {/* <img

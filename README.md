@@ -11,18 +11,18 @@ Calendario en español construido con Next.js, React, NextAuth y MongoDB.
 
 ## Desarrollo
 
-El repositorio usa Next.js 12 y NextAuth 4.3.4, cuyo motor declarado requiere Node 16. Para reproducir el entorno de desarrollo con mise:
+El repositorio usa Node 24, Yarn 1.22.22, Next.js 15 y NextAuth 4.24. Instala Node 24 y ejecuta:
 
 ```sh
-mise exec node@16.20.2 -- corepack yarn install --frozen-lockfile
-mise exec node@16.20.2 -- corepack yarn dev
+corepack yarn install --frozen-lockfile
+corepack yarn dev
 ```
 
 Abre http://localhost:3000. Sin credenciales puedes explorar la vista de prueba; sus cambios se guardan solo en el navegador y no se importan a una cuenta.
 
 ## Activar las cuentas y el guardado en la nube
 
-Sigue la [guía paso a paso para activar cuentas](docs/activar-cuentas.md). Puedes generar la configuración privada local con `mise exec node@16.20.2 -- corepack yarn config:init` y revisar lo pendiente con `mise exec node@16.20.2 -- corepack yarn config:check`.
+Sigue la [guía paso a paso para activar cuentas](docs/activar-cuentas.md). Puedes generar la configuración privada local con `corepack yarn config:init` y revisar lo pendiente con `corepack yarn config:check`.
 
 Configura en `.env.local`:
 
@@ -43,9 +43,9 @@ Las variables `CLOUDINARY_*` del ejemplo pertenecen a las funciones sociales ori
 ## Comprobaciones
 
 ```sh
-mise exec node@16.20.2 -- corepack yarn lint
-mise exec node@16.20.2 -- corepack yarn tsc --noEmit
-mise exec node@16.20.2 -- corepack yarn build
+corepack yarn lint
+corepack yarn tsc --noEmit
+corepack yarn build
 node --test tests/*.test.cjs
 ```
 

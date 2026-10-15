@@ -7,7 +7,7 @@ El calendario necesita una base MongoDB y al menos un proveedor de acceso. Puede
 Desde la carpeta del proyecto:
 
 ```sh
-mise exec node@16.20.2 -- corepack yarn config:init
+corepack yarn config:init
 ```
 
 Este comando crea `.env.local` y genera `NEXT_AUTH_SECRET`. Si el archivo ya existe, conserva todos sus valores. Nunca imprime el secreto. `.env.local` está excluido de Git.
@@ -45,8 +45,8 @@ El acceso solicita identidad, nombre y correo. No necesita activar la API de Goo
 ## 5. Comprobar y probar
 
 ```sh
-mise exec node@16.20.2 -- corepack yarn config:check
-mise exec node@16.20.2 -- corepack yarn dev
+corepack yarn config:check
+corepack yarn dev
 ```
 
 Reinicia el servidor después de cambiar variables. La comprobación muestra los campos que faltan, sin revelar valores. Valida el formato y la presencia de configuración; no comprueba credenciales reales ni la conexión con MongoDB.
@@ -65,4 +65,4 @@ Cuando tengas una URL pública:
 4. Registra la URL pública de retorno: `https://tu-dominio/api/auth/callback/github` o `/google`. Para GitHub, utiliza otra OAuth App para producción y conserva la de desarrollo.
 5. Permite la conexión del servidor de producción a MongoDB y repite la prueba con dos cuentas.
 
-La elección del alojamiento y su versión de Node debe resolverse antes del despliegue: este repositorio conserva Next.js 12 y NextAuth 4.3.4, probados localmente con Node 16.20.2. No se ha verificado el despliegue en un alojamiento actual ni se ha actualizado todavía ese conjunto de versiones.
+En Vercel selecciona el framework **Next.js**, Node **24.x**, instalación `yarn install --frozen-lockfile` y compilación `yarn build`. Deja el directorio de salida con el valor automático. La versión de Node también está declarada en `package.json`.

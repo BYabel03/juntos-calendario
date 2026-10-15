@@ -7,17 +7,19 @@ export default async function handler(
   res: NextApiResponse
 ) {
   const { method } = req;
-  if (method === "POST") {
-    const { name } = req.query;
-    const [tag, error] = await create(name.toString());
-    if (error || !tag) {
-      res.status(500).json({ error });
-    }
-    res.status(200).json(tag);
+  const { name } = req.query;
+  if ((method === "POST" || method === "GET") && typeof name !== "string") {
+    return res.status(400).json({ message: "Invalid name" });
   }
-  if (method === "GET") {
-    const { name } = req.query;
-    const [tags, error] = await search(name.toString());
+  if (method === "POST" && typeof name === "string") {
+    const [tag, error] = await create(name);
+    if (error || !tag) {
+      return res.status(500).json({ error });
+    }
+    return res.status(200).json(tag);
+  }
+  if (method === "GET" && typeof name === "string") {
+    const [tags, error] = await search(name);
     if (error || !tags) {
       return res.status(500).json({ error });
     }

@@ -45,7 +45,7 @@ export default NextAuth({
         const [userFromDB] = await register(userBody);
 
         if (userFromDB) {
-          session.userId = userFromDB.id;
+          session.userId = String(userFromDB.id);
         }
         return session;
       } catch (error) {

@@ -14,6 +14,10 @@ export default async function handler(
     return res.status(405).json({ message: "Method not allowed" });
   }
 
+  if (!Array.isArray(params)) {
+    return res.status(400).json({ message: "No title" });
+  }
+
   const title = params[0];
   const tagName = params[1];
 

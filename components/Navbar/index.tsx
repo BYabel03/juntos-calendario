@@ -7,7 +7,7 @@ export default function Layout() {
   return (
     <nav className="navbar">
       <div className="container">
-        <NextLink href="/">
+        <NextLink legacyBehavior href="/">
           <a>
             <h2 className="logo">Juntos_</h2>
           </a>

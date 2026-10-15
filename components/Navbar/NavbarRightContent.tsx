@@ -35,7 +35,7 @@ export default function NavbarRightContent() {
       </label>
       {user ? (
         <>
-          <NextLink href="/share">
+          <NextLink legacyBehavior href="/share">
             <a className="btn primary">Crear</a>
           </NextLink>
 
@@ -49,7 +49,7 @@ export default function NavbarRightContent() {
           </Tooltip>
         </>
       ) : (
-        <NextLink href="/login">
+        <NextLink legacyBehavior href="/login">
           <a className="btn primary">Login </a>
         </NextLink>
       )}

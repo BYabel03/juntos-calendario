@@ -28,7 +28,7 @@ export default function Home({ fallback }: { fallback: Post[] }) {
             className="create-post-input"
             autoComplete="off"
           />
-          <NextLink href="/share">
+          <NextLink legacyBehavior href="/share">
             <a className="btn primary">Crear</a>
           </NextLink>
         </div>

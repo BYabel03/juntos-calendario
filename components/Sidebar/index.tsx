@@ -28,7 +28,7 @@ export default function Sidebar() {
 
       <aside className="sidebar">
         {linksList.map(({ href, icon, label }) => (
-          <NextLink href={href} key={href}>
+          <NextLink legacyBehavior href={href} key={href}>
             <a className={`menu-item ${href === pathname ? "active" : ""}`}>
               {icon}
               <span className="menu-item-text">{label}</span>
