@@ -135,7 +135,7 @@ export default function Calendar() {
   const [notice, setNotice] = useState("");
   const [editing, setEditing] = useState<CalendarEvent | null>(null);
   const [saving, setSaving] = useState(false);
-  const [adminEditing, setAdminEditing] = useState(false);
+  const [reservationEditing, setReservationEditing] = useState(false);
   const [loginOpen, setLoginOpen] = useState(false);
   const [providers, setProviders] = useState<string[] | null>(null);
   const [providerError, setProviderError] = useState(false);
@@ -156,7 +156,7 @@ export default function Calendar() {
   useEffect(() => {
     const scope = ++scopeRef.current;
     setEditing(null);
-    setAdminEditing(false);
+    setReservationEditing(false);
     setCalendarManager(false);
     setCalendarDraft(null);
     setCalendarSaving(false);
@@ -269,7 +269,7 @@ export default function Calendar() {
     triggerRef.current = document.activeElement as HTMLElement;
     setNotice("");
     setError("");
-    setAdminEditing(false);
+    setReservationEditing(false);
     setEditing(
       event
         ? { ...event }
@@ -289,11 +289,11 @@ export default function Calendar() {
   function closeEditor() {
     if (saving) return;
     setEditing(null);
-    setAdminEditing(false);
+    setReservationEditing(false);
     triggerRef.current?.focus();
   }
   async function persist(event: CalendarEvent, remove = false) {
-    if ((event.id && !isAdmin) || (remove && !event.id) || saving || calendarSaving || !loaded) return;
+    if ((remove && (!isAdmin || !event.id)) || saving || calendarSaving || !loaded) return;
     const scope = scopeRef.current;
     setSaving(true);
     setError("");
@@ -323,7 +323,7 @@ export default function Calendar() {
       setCursor(fromKey(event.date));
       setNotice(remove ? "Reserva eliminada." : event.id ? "Reserva actualizada." : "Reserva guardada.");
       setEditing(null);
-      setAdminEditing(false);
+      setReservationEditing(false);
       triggerRef.current?.focus();
     } catch (e) {
       if (scope !== scopeRef.current) return;
@@ -334,7 +334,7 @@ export default function Calendar() {
   }
   function submit(e: FormEvent) {
     e.preventDefault();
-    if (!editing || (editing.id && !isAdmin)) return;
+    if (!editing) return;
     if (!validEvent(editing)) {
       setError(
         "La hora de fin debe ser posterior al inicio. Revisa los datos de la reserva."
@@ -344,7 +344,7 @@ export default function Calendar() {
     persist(editing);
   }
   function update(field: keyof CalendarEvent, value: string) {
-    setEditing((event) => (event && (!event.id || isAdmin) ? { ...event, [field]: value } : event));
+    setEditing((event) => (event ? { ...event, [field]: value } : event));
   }
   function categoryStyle(category: Category, override?: string): CSSProperties {
     const calendar = calendars.find((c) => c.id === category) || defaultCalendars[0];
@@ -614,7 +614,7 @@ export default function Calendar() {
               <h1>
                 {isAdmin ? "Administrar reservas" : "Tu tiempo, a tu manera"}<span>.</span>
               </h1>
-              <p>{isAdmin ? "Puedes crear, editar y eliminar todas las reservas." : "Consulta las reservas y crea la tuya sin iniciar sesión."}</p>
+              <p>{isAdmin ? "Puedes crear, editar y eliminar todas las reservas." : "Consulta, crea y edita reservas sin iniciar sesión."}</p>
             </div>
             <button
               className={s.newEvent}
@@ -923,12 +923,12 @@ export default function Calendar() {
           </footer>
           <div className={s.demoNote}>
             Las reservas son públicas. Cualquier persona con el enlace puede ver sus datos y crear una nueva.
-            Solo el administrador puede editar o eliminar reservas.
+            Cualquier visitante puede editar las reservas.
           </div>
         </div>
       </div>
       <dialog
-        aria-label={editing?.id ? isAdmin && adminEditing ? "Editar reserva" : "Datos de la reserva" : "Crear reserva"}
+        aria-label={editing?.id ? reservationEditing ? "Editar reserva" : "Datos de la reserva" : "Crear reserva"}
         ref={dialogRef}
         className={s.dialog}
         onCancel={(e) => {
@@ -936,10 +936,10 @@ export default function Calendar() {
           closeEditor();
         }}
         onClose={() => {
-          if (!saving) { setEditing(null); setAdminEditing(false); }
+          if (!saving) { setEditing(null); setReservationEditing(false); }
         }}
       >
-        {editing && (editing.id && !(isAdmin && adminEditing) ? (
+        {editing && (editing.id && !(reservationEditing) ? (
           <section>
             <div className={s.dialogHeader}>
               <span className={s.kicker}>RESERVA</span>
@@ -958,12 +958,10 @@ export default function Calendar() {
             </dl>
             {error && <p className={s.error} role="alert">{error}</p>}
             <div className={s.dialogActions}>
-              {isAdmin && <>
-                <button type="button" className={s.delete} disabled={saving} onClick={() => {
-                  if (window.confirm("¿Eliminar esta reserva?")) persist(editing, true);
-                }}>Eliminar reserva</button>
-                <button type="button" className={s.newEvent} disabled={saving} onClick={() => setAdminEditing(true)}>Editar reserva</button>
-              </>}
+              {isAdmin && <button type="button" className={s.delete} disabled={saving} onClick={() => {
+                if (window.confirm("¿Eliminar esta reserva?")) persist(editing, true);
+              }}>Eliminar reserva</button>}
+              <button type="button" className={s.newEvent} disabled={saving} onClick={() => setReservationEditing(true)}>Editar reserva</button>
               <button type="button" className={s.cancel} disabled={saving} onClick={closeEditor}>Cerrar</button>
             </div>
           </section>
@@ -1158,7 +1156,7 @@ export default function Calendar() {
         <p>
           {isAuthenticated
             ? `Sesión iniciada como ${session?.user?.email}.`
-            : "Este acceso es solo para el administrador. Para crear o consultar reservas, cierra esta ventana."}
+            : "Este acceso es solo para el administrador. Para crear, consultar o editar reservas, cierra esta ventana."}
         </p>
         {isAuthenticated ? (
           <button

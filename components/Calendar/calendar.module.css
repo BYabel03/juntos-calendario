@@ -618,6 +618,7 @@
   align-items: center;
   gap: 5px;
   background: var(--event-bg) !important;
+  border-left: 3px solid var(--event-color);
   color: var(--event-text) !important;
   border-radius: 4px;
   padding: 5px 5px;
@@ -748,7 +749,7 @@
   font-size: 8px;
 }
 .summaryLine {
-  width: 2px;
+  width: 4px;
   height: 33px;
   background: var(--event-color);
   border-radius: 2px;
@@ -883,6 +884,7 @@
   width: 100%;
   padding: 12px 10px;
   background: var(--event-bg) !important;
+  border-left: 3px solid var(--event-color);
   color: var(--event-text) !important;
   border-radius: 6px;
   text-align: left;

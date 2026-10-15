@@ -99,9 +99,9 @@ function harness({ email = owner, token = true, calendarExists = true,
   }
   return { calls, invoke, setAdmins: (value) => { env.CALENDAR_ADMIN_EMAILS = value; } };
 }
-test("anonymous visitors cannot edit or delete reservations", async () => {
+test("anonymous visitors cannot delete reservations", async () => {
   const h = harness({ token: false });
-  for (const method of ["PUT", "DELETE"])
+  for (const method of ["DELETE"])
     assert.equal((await h.invoke(method, event)).statusCode, 401);
   assert.equal(h.calls.length, 0);
 });
@@ -137,9 +137,9 @@ test("client cannot assign event ownership or extra fields", async () => {
   assert.equal(res.body.owner, undefined);
   assert.equal(res.body.id, id);
 });
-test("ordinary users can create but cannot modify reservations or grant themselves admin", async () => {
+test("ordinary users can create but cannot delete reservations or grant themselves admin", async () => {
   const h = harness();
-  for (const method of ["PUT", "DELETE"]) {
+  for (const method of ["DELETE"]) {
     const res = await h.invoke(method, { ...event, id, isCalendarAdmin: true, role: "admin", owner: "admin@example.test" });
     assert.equal(res.statusCode, 403);
   }
@@ -183,7 +183,7 @@ test("custom calendar validation uses server-assigned creator and preserves arbi
   assert.equal(invalid.calls.length, 0);
 });
 
-test("only one configured verified administrator gets creator identities or write permissions", async () => {
+test("only one configured verified administrator gets creator identities or deletion permissions", async () => {
   const records = [{ ...event, _id: id, owner }, { ...event, _id: "507f1f77bcf86cd799439012", owner: "second@example.test" }];
   const user = harness({ records });
   const own = await user.invoke("GET");
@@ -201,7 +201,7 @@ test("only one configured verified administrator gets creator identities or writ
     { email: "admin@example.test", verified: true, adminEmails: "admin@example.test,second@example.test" },
   ]) {
     const denied = harness(config);
-    assert.equal((await denied.invoke("PUT", { ...event, id })).statusCode, 403);
+    assert.equal((await denied.invoke("DELETE", { id })).statusCode, 403);
     assert.equal(denied.calls.length, 0);
   }
 });
@@ -240,4 +240,23 @@ test("admin creates own reservations while public clients cannot forge admin own
   const response = await admin.invoke("POST", { ...event, owner: "forged@example.test" });
   assert.equal(response.statusCode, 201);
   assert.equal(response.body.owner, "admin@example.test");
+});
+
+test("anonymous visitors edit any saved reservation without login and preserve its original owner", async () => {
+  const records = [{ ...event, _id: id, owner, category: "custom-123" }];
+  const visitor = harness({ token: false, records });
+  const changed = await visitor.invoke("PUT", { ...event, id, title: "Nombre de la reserva actualizado", category: "custom-123", color: "#3366ff", owner: "forged@example.test" });
+  assert.equal(changed.statusCode, 200);
+  assert.equal(changed.body.title, "Nombre de la reserva actualizado");
+  assert.equal(changed.body.color, "#3366ff");
+  assert.equal(changed.body.owner, undefined);
+  assert.equal(records[0].owner, owner);
+  assert.equal(visitor.calls.find(c => c[0] === "calendar")[1].owner, owner);
+  const reloaded = await harness({ token: false, records }).invoke("GET");
+  assert.equal(reloaded.body[0].title, changed.body.title);
+  const invalid = harness({ token: false });
+  assert.equal((await invalid.invoke("PUT", { ...event, id, end: "08:00" })).statusCode, 400);
+  assert.equal((await invalid.invoke("PUT", { ...event, id }, { origin: "https://other.example.test" })).statusCode, 403);
+  assert.equal(invalid.calls.length, 0);
+  assert.equal((await invalid.invoke("PUT", { ...event, id })).statusCode, 404);
 });

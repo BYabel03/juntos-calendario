@@ -31,7 +31,7 @@ export function colorAppearance(color: string) {
     const channel = value / 255;
     return sum + (channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4) * [0.2126, 0.7152, 0.0722][i];
   }, 0);
-  const tint = rgb.map((v) => Math.round(v * 0.12 + 255 * 0.88));
+  const tint = rgb.map((v) => Math.round(v * 0.32 + 255 * 0.68));
   const light = luminance(rgb);
   const background = "#" + tint.map((v) => v.toString(16).padStart(2, "0")).join("");
   return { color, background,

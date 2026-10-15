@@ -20,8 +20,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   try {
     const token = await getToken({ req, secret: process.env.NEXT_AUTH_SECRET });
     const admin = canManageReservations(token);
-    if ((req.method === "PUT" || req.method === "DELETE") && !admin) {
-      return res.status(token?.email ? 403 : 401).json({ error: "Solo el administrador puede modificar o eliminar reservas." });
+    if (req.method === "DELETE" && !admin) {
+      return res.status(token?.email ? 403 : 401).json({ error: "Solo el administrador puede eliminar reservas." });
     }
     if ((req.method === "PUT" || req.method === "DELETE") &&
       (typeof req.body?.id !== "string" || !mongoose.isValidObjectId(req.body.id))) {
@@ -45,7 +45,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const result = await Event.deleteOne({ _id: req.body.id });
       return result.deletedCount ? res.status(204).end() : res.status(404).json({ error: "Reserva no encontrada." });
     }
-    // An administrator keeps the original creator when editing another account's reservation.
+    // Public edits preserve the original creator; the client cannot reassign ownership.
     const existing = req.method === "PUT" ? await Event.findOne({ _id: req.body.id }).lean() : null;
     if (req.method === "PUT" && !existing) return res.status(404).json({ error: "Reserva no encontrada." });
     const owner = existing ? existing.owner : admin ? token!.email : PUBLIC_RESERVATION_OWNER;

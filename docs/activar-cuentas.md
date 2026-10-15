@@ -2,9 +2,9 @@
 
 ## Cómo funciona
 
-- Los visitantes abren el enlace, ven los datos de todas las reservas y pueden crear una sin registrarse.
-- Al abrir una reserva guardada, ven sus datos sin campos editables.
-- Solo el administrador inicia sesión y puede editar o eliminar cualquier reserva.
+- Los visitantes abren el enlace, ven los datos de todas las reservas y pueden crear y editar sin registrarse.
+- Al abrir una reserva guardada, ven sus datos y pueden pulsar Editar reserva para cambiar nombre, fecha, horas, lugar, color y notas.
+- Solo el administrador necesita iniciar sesión para eliminar reservas o personalizar calendarios. Crear y editar no requieren login.
 - Todas las reservas se guardan en MongoDB. **Actualizar reservas** o recargar la página muestra los cambios de otros visitantes.
 
 ## 1. Subir el proyecto actualizado a GitHub
@@ -34,7 +34,7 @@ En Vercel añade para **Production**:
 | `NEXT_AUTH_SECRET` | Un secreto aleatorio de al menos 32 caracteres, estable entre despliegues |
 | `CALENDAR_ADMIN_EMAILS` | Solo el correo verificado de tu cuenta de administrador |
 
-Aunque el nombre termine en EMAILS, esta versión acepta **un solo correo**. Si introduces varios, no se concede administración. Para cambiar de administrador, sustituye el correo y vuelve a desplegar; el anterior pierde acceso a las modificaciones.
+Aunque el nombre termine en EMAILS, esta versión acepta **un solo correo**. Si introduces varios, no se concede administración. Para cambiar de administrador, sustituye el correo y vuelve a desplegar; el anterior pierde acceso al borrado y a la configuración de calendarios.
 
 No compartas secretos en el chat ni en GitHub.
 
@@ -65,12 +65,12 @@ No se necesita activar Google Calendar. Los botones aparecen cuando están confi
 ## 5. Volver a desplegar y usar
 
 1. En Vercel → **Deployments**, abre **⋯ → Redeploy** en el último despliegue y espera **Ready**.
-2. Comparte la URL pública. Los visitantes podrán crear reservas y ver sus datos sin iniciar sesión.
+2. Comparte la URL pública. Los visitantes podrán crear y editar reservas y ver sus datos sin iniciar sesión.
 3. Para administrar, pulsa **Acceso del administrador** y entra con tu cuenta configurada.
 4. Verás **Administrar reservas**. Abre una reserva y pulsa **Editar reserva** o **Eliminar reserva**.
 5. Si ya habías iniciado sesión antes de configurar el correo, cierra sesión y vuelve a entrar.
 
-Comprueba en dos navegadores: crea una reserva sin cuenta en uno y recarga el otro para verla. El visitante debe poder consultar y crear, pero no editar ni eliminar. Como administrador, comprueba la edición y eliminación de esa reserva.
+Comprueba en dos navegadores: crea una reserva sin cuenta en uno y recarga el otro para verla. El visitante debe poder consultar, crear y editar, pero no eliminar. Como administrador, comprueba la edición y eliminación de esa reserva.
 
 ## Desarrollo local
 

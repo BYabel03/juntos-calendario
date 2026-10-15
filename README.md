@@ -2,10 +2,10 @@
 
 Calendario en español construido con Next.js, React, NextAuth y MongoDB.
 
-- Cualquier visitante abre el enlace, consulta todas las reservas y crea una nueva sin cuenta.
-- Nombre de la reserva, fecha, hora de inicio y fin, lugar, color libre y notas.
+- Cualquier visitante abre el enlace, consulta, crea y edita reservas sin cuenta.
+- Nombre de la reserva, fecha, hora de inicio y fin, lugar, color libre y notas. Colores más intensos y franja lateral para distinguir las reservas.
 - Los datos de las reservas son públicos. El formulario lo indica antes de guardar.
-- Las reservas guardadas se abren como datos de consulta. Solo el administrador puede editarlas o eliminarlas.
+- Las reservas guardadas se abren con sus datos y un botón Editar reserva disponible para todos, sin iniciar sesión. Se conserva el campo Nombre de la reserva. Solo el administrador puede eliminarlas.
 - Un único administrador inicia sesión con su cuenta de Google o GitHub. Su correo verificado se configura en el servidor.
 - Las reservas se guardan en MongoDB y se comparten entre dispositivos. No se guardan en localStorage ni se sustituyen por ejemplos si falla la base de datos.
 - Vistas de mes, semana y agenda, búsqueda, filtros y diseño adaptable a móviles.
@@ -33,7 +33,7 @@ Abre http://localhost:3000. Para consultar y guardar reservas compartidas necesi
 - `CALENDAR_ADMIN_EMAILS`: **un único correo**, el de la cuenta verificada del administrador. Se conserva el nombre de la variable por compatibilidad. Si está vacío o contiene varios correos, nadie obtiene permisos de administrador.
 - `GITHUB_ID` y `GITHUB_SECRET`, o `GOOGLE_ID` y `GOOGLE_SECRET`: al menos un proveedor para el acceso del administrador. Los visitantes no necesitan OAuth.
 
-El acceso de otras cuentas se rechaza. Las APIs comprueban el token firmado, la verificación del proveedor y el correo configurado en cada modificación. Los visitantes solo pueden consultar y crear; no pueden asignarse permisos ni propietarios. Los correos de cuentas anteriores no se exponen en las respuestas públicas.
+El acceso de otras cuentas se rechaza. Las APIs comprueban el token firmado, la verificación del proveedor y el correo configurado al eliminar y al personalizar calendarios. Los visitantes pueden consultar, crear y editar; no pueden asignarse permisos ni propietarios. Los correos de cuentas anteriores no se exponen en las respuestas públicas.
 
 Las reservas existentes pasan a ser visibles en el calendario compartido; las antiguas muestras guardadas únicamente en un navegador no se importan. Los datos anteriores siguen siendo editables por el administrador. Las reservas creadas sin cuenta aparecen como **Visitante** en la administración.
 
