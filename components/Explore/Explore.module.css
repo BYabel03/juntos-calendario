@@ -1,0 +1,33 @@
+.form {
+  width: 100%;
+}
+
+.search {
+  background: var(--color-white);
+  display: flex;
+  border-radius: var(--card-radius);
+  padding: var(--card-padding);
+  width: 100%;
+  font-weight: 500;
+  margin: 0.75rem 0;
+  color: var(--color-dark);
+}
+
+.category_list {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.category {
+  cursor: pointer;
+  border-radius: 2rem;
+  background: var(--color-white);
+  font-size: 0.85rem;
+  padding: 0.5rem 1em;
+}
+
+.category_input:checked ~ .category {
+  background: var(--color-primary);
+  color: white;
+}
