@@ -1,6 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { getToken } from "next-auth/jwt";
-import mongoose from "mongoose";
 import dbConnect from "lib/dbConnect";
 import Event from "models/event";
 import Calendar from "models/calendar";
@@ -11,8 +10,8 @@ export default async function handler(
   res: NextApiResponse
 ) {
   res.setHeader("Cache-Control", "no-store");
-  if (!["GET", "POST", "PUT", "DELETE"].includes(req.method || "")) {
-    res.setHeader("Allow", "GET, POST, PUT, DELETE");
+  if (!["GET", "POST"].includes(req.method || "")) {
+    res.setHeader("Allow", "GET, POST");
     return res.status(405).json({ error: "Método no permitido." });
   }
   if (req.method !== "GET") {
@@ -27,26 +26,18 @@ export default async function handler(
     if (!token?.email)
       return res
         .status(401)
-        .json({ error: "Inicia sesión para acceder a tus eventos." });
+        .json({ error: "Inicia sesión para acceder a tus reservas." });
     const owner = token.email;
     if (
-      req.method !== "GET" &&
-      req.method !== "POST" &&
-      (typeof req.body?.id !== "string" ||
-        !mongoose.isValidObjectId(req.body.id))
-    ) {
-      return res.status(400).json({ error: "El evento no es válido." });
-    }
-    if (
-      (req.method === "POST" || req.method === "PUT") &&
+      req.method === "POST" &&
       !validEvent(req.body)
     ) {
       return res
         .status(400)
-        .json({ error: "Revisa el título, la fecha y las horas del evento." });
+        .json({ error: "Revisa el nombre, la fecha y las horas de la reserva." });
     }
     await dbConnect();
-    if ((req.method === "POST" || req.method === "PUT") &&
+    if (req.method === "POST" &&
       !defaultCalendars.some((c) => c.id === req.body.category) &&
       !(await Calendar.exists({ owner, calendarId: req.body.category }))) {
       return res.status(400).json({ error: "Elige uno de tus calendarios." });
@@ -68,12 +59,6 @@ export default async function handler(
         .lean();
       return res.status(200).json(events.map(serialize));
     }
-    if (req.method === "DELETE") {
-      const result = await Event.deleteOne({ _id: req.body.id, owner });
-      return result.deletedCount
-        ? res.status(204).end()
-        : res.status(404).json({ error: "Evento no encontrado." });
-    }
     const { title, date, start, end, location, description, category, color } =
       req.body;
     const data = {
@@ -86,16 +71,8 @@ export default async function handler(
       category,
       color: color || "",
     };
-    const event =
-      req.method === "POST"
-        ? await Event.create({ ...data, owner })
-        : await Event.findOneAndUpdate({ _id: req.body.id, owner }, data, {
-            new: true,
-            runValidators: true,
-          });
-    return event
-      ? res.status(req.method === "POST" ? 201 : 200).json(serialize(event))
-      : res.status(404).json({ error: "Evento no encontrado." });
+    const event = await Event.create({ ...data, owner });
+    return res.status(201).json(serialize(event));
   } catch {
     return res
       .status(503)

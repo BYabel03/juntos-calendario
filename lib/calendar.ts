@@ -128,6 +128,6 @@ export function demoEvents(today: Date): CalendarEvent[] {
     category,
     location,
     date: dateKey(addDays(today, offset)),
-    description: "Evento de ejemplo. Puedes editarlo o eliminarlo.",
+    description: "Reserva de ejemplo. Abre para consultar sus datos.",
   }));
 }

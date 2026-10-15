@@ -90,7 +90,7 @@ function harness({ email = owner, token = true, calendarExists = true } = {}) {
 }
 test("unauthenticated requests never touch storage", async () => {
   const h = harness({ token: false });
-  for (const method of ["GET", "POST", "PUT", "DELETE"])
+  for (const method of ["GET", "POST"])
     assert.equal((await h.invoke(method, event)).statusCode, 401);
   assert.equal(h.calls.length, 0);
 });
@@ -115,30 +115,17 @@ test("client cannot assign event ownership or extra fields", async () => {
   assert.equal(res.body.owner, undefined);
   assert.equal(res.body.id, id);
 });
-test("updates and deletes include ownership and return 404 for foreign events", async () => {
+test("saved reservations cannot be changed or deleted, even by their owner", async () => {
   const h = harness();
-  assert.equal(
-    (await h.invoke("PUT", { ...event, id, owner: "victim@example.test" }))
-      .statusCode,
-    404
-  );
-  assert.equal(
-    (await h.invoke("DELETE", { id, owner: "victim@example.test" })).statusCode,
-    404
-  );
-  const writes = h.calls.filter((c) => ["update", "delete"].includes(c[0]));
-  assert.equal(writes.length, 2);
-  for (const [, query] of writes) {
-    assert.equal(query.owner, owner);
-    assert.equal(query._id, id);
+  for (const method of ["PUT", "PATCH", "DELETE"]) {
+    const res = await h.invoke(method, { ...event, id });
+    assert.equal(res.statusCode, 405);
+    assert.equal(res.headers.Allow, "GET, POST");
   }
+  assert.equal(h.calls.length, 0);
 });
-test("rejects malformed identifiers, dates, hours and cross-origin writes before storage", async () => {
+test("rejects malformed dates, hours and cross-origin writes before storage", async () => {
   const h = harness();
-  assert.equal(
-    (await h.invoke("DELETE", { id: { $ne: null } })).statusCode,
-    400
-  );
   assert.equal(
     (await h.invoke("POST", { ...event, date: "2026-02-30" })).statusCode,
     400

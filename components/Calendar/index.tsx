@@ -136,8 +136,6 @@ export default function Calendar() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [editing, setEditing] = useState<CalendarEvent | null>(null);
-  const [theme, setTheme] = useState("");
-  const pendingThemeRef = useRef<{ label: string; id: string } | null>(null);
   const [saving, setSaving] = useState(false);
   const [loginOpen, setLoginOpen] = useState(false);
   const [providers, setProviders] = useState<string[] | null>(null);
@@ -158,8 +156,6 @@ export default function Calendar() {
   useEffect(() => {
     const scope = ++scopeRef.current;
     setEditing(null);
-    setTheme("");
-    pendingThemeRef.current = null;
     setCalendarManager(false);
     setCalendarDraft(null);
     setCalendarSaving(false);
@@ -290,8 +286,6 @@ export default function Calendar() {
     triggerRef.current = document.activeElement as HTMLElement;
     setNotice("");
     setError("");
-    setTheme(event ? calendars.find((c) => c.id === event.category)?.label || "" : "");
-    pendingThemeRef.current = null;
     setEditing(
       event
         ? { ...event }
@@ -313,95 +307,58 @@ export default function Calendar() {
     setEditing(null);
     triggerRef.current?.focus();
   }
-  async function persist(event: CalendarEvent, remove = false) {
-    if (saving || calendarSaving || !loaded) return;
+  async function persist(event: CalendarEvent) {
+    if (event.id || saving || calendarSaving || !loaded) return;
     const scope = scopeRef.current;
     setSaving(true);
     setError("");
     try {
-      let eventToSave = event;
-      if (!remove) {
-        const label = theme.trim();
-        if (!label || label.length > 60) throw new Error("Escribe el tema de tu evento (hasta 60 caracteres).");
-        const normalized = label.toLocaleLowerCase("es");
-        const current = calendars.find((c) => c.id === event.category);
-        const existing = current?.label.toLocaleLowerCase("es") === normalized
-          ? current : calendars.find((c) => c.label.toLocaleLowerCase("es") === normalized);
-        let calendar = existing;
-        if (!calendar) {
-          // Keep the ID stable if the request succeeds but its response is lost.
-          if (pendingThemeRef.current?.label !== normalized) {
-            pendingThemeRef.current = { label: normalized, id: crypto.randomUUID() };
-          }
-          calendar = { id: pendingThemeRef.current.id, label, color: event.color || current?.color || "#387c65" };
-          if (isAuthenticated) {
-            const response = await fetch("/api/calendars", {
-              method: "PUT",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(calendar),
-            });
-            if (!response.ok) {
-              const data = await response.json();
-              throw new Error(data.error || "No se pudo guardar el tema. Inténtalo de nuevo.");
-            }
-            calendar = await response.json();
-            if (!validCalendar(calendar)) throw new Error("No se pudo leer el tema guardado.");
-          }
-          if (scope !== scopeRef.current) return;
-          const nextCalendars = [...calendars, calendar];
-          if (!isAuthenticated) localStorage.setItem(calendarsKey, JSON.stringify(nextCalendars));
-          setCalendars(nextCalendars);
-        }
-        eventToSave = { ...event, category: calendar.id };
-      }
-      let saved = eventToSave;
+      const reservation = {
+        ...event,
+        color: event.color || calendars.find((c) => c.id === event.category)?.color || "#387c65",
+      };
+      let saved = reservation;
       if (isAuthenticated) {
         const res = await fetch("/api/events", {
-          method: remove ? "DELETE" : event.id ? "PUT" : "POST",
+          method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(eventToSave),
+          body: JSON.stringify(reservation),
         });
         if (!res.ok) {
           const data = await res.json();
-          throw new Error(data.error);
+          throw new Error(data.error || "No se pudo guardar la reserva.");
         }
-        if (!remove) saved = await res.json();
-      } else if (!saved.id) saved = { ...eventToSave, id: crypto.randomUUID() };
+        saved = await res.json();
+      } else saved = { ...reservation, id: crypto.randomUUID() };
       if (scope !== scopeRef.current) return;
-      const next = remove
-        ? events.filter((e) => e.id !== event.id)
-        : [...events.filter((e) => e.id !== event.id), saved];
-      if (!isAuthenticated)
-        localStorage.setItem(storageKey, JSON.stringify(next));
+      const next = [...events, saved];
+      if (!isAuthenticated) localStorage.setItem(storageKey, JSON.stringify(next));
       setEvents(next);
       setSelected(event.date);
       setCursor(fromKey(event.date));
-      setNotice(remove ? "Evento eliminado." : "Evento guardado.");
+      setNotice("Reserva guardada.");
       setEditing(null);
       triggerRef.current?.focus();
     } catch (e) {
       if (scope !== scopeRef.current) return;
-      setError(
-        e instanceof Error
-          ? e.message
-          : "No se pudo guardar. Inténtalo de nuevo."
-      );
+      setError(e instanceof Error ? e.message : "No se pudo guardar la reserva. Inténtalo de nuevo.");
     } finally {
       if (scope === scopeRef.current) setSaving(false);
     }
   }
   function submit(e: FormEvent) {
     e.preventDefault();
-    if (!editing || !validEvent(editing)) {
+    if (!editing || editing.id) return;
+    if (!validEvent(editing)) {
       setError(
-        "La hora de fin debe ser posterior al inicio. Revisa los datos del evento."
+        "La hora de fin debe ser posterior al inicio. Revisa los datos de la reserva."
       );
       return;
     }
     persist(editing);
   }
   function update(field: keyof CalendarEvent, value: string) {
-    setEditing((event) => (event ? { ...event, [field]: value } : null));
+    setEditing((event) => (event && !event.id ? { ...event, [field]: value } : event));
   }
   function categoryStyle(category: Category, override?: string): CSSProperties {
     const calendar = calendars.find((c) => c.id === category) || defaultCalendars[0];
@@ -458,8 +415,8 @@ export default function Calendar() {
       if (scope === scopeRef.current) setCalendarSaving(false);
     }
   }
-  const themeColor = calendars.find((c) => c.label.toLocaleLowerCase("es") === theme.trim().toLocaleLowerCase("es"))?.color
-    || calendars.find((c) => c.id === editing?.category)?.color || "#387c65";
+  const reservationColor = editing?.color && /^#[0-9a-fA-F]{6}$/.test(editing.color)
+    ? editing.color : calendars.find((c) => c.id === editing?.category)?.color || "#387c65";
   const eventButton = (event: CalendarEvent, compact = false) => (
     <button
       key={event.id}
@@ -513,7 +470,7 @@ export default function Calendar() {
           onClick={() => openEvent()}
           disabled={!loaded}
         >
-          <Icon name="plus" /> Crear evento
+          <Icon name="plus" /> Crear reserva
         </button>
         <div className={s.sideSection}>
           <span className={s.eyebrow}>MI ESPACIO</span>
@@ -677,7 +634,7 @@ export default function Calendar() {
               onClick={() => openEvent()}
               disabled={!loaded}
             >
-              <Icon name="plus" size={18} /> Nuevo evento
+              <Icon name="plus" size={18} /> Nueva reserva
             </button>
           </div>
           <div className={s.toolbar}>
@@ -796,7 +753,7 @@ export default function Calendar() {
                             {d.getDate()}
                           </button>
                           <button
-                            aria-label={`Crear evento el ${key}`}
+                            aria-label={`Crear reserva el ${key}`}
                             className={s.dayAdd}
                             disabled={!loaded}
                             onClick={() => openEvent(undefined, key)}
@@ -864,7 +821,7 @@ export default function Calendar() {
                     <Icon name="calendar" size={36} />
                     <h3>Espacio para nuevos planes</h3>
                     <p>
-                      No hay eventos para este mes con los filtros actuales.
+                      No hay reservas para este mes con los filtros actuales.
                     </p>
                     <button onClick={() => openEvent()} disabled={!loaded}>
                       Crear un evento <Icon name="plus" size={16} />
@@ -895,7 +852,7 @@ export default function Calendar() {
             <div className={s.calendarFooter}>
               <span>
                 <span className={s.footerDot} />
-                {monthCount} eventos este mes
+                {monthCount} reservas este mes
               </span>
               <span>
                 Hora local ·{" "}
@@ -923,7 +880,7 @@ export default function Calendar() {
                     })}
                 </p>
               </div>
-              <span className={s.badge}>{selectedEvents.length} eventos</span>
+              <span className={s.badge}>{selectedEvents.length} reservas</span>
               <button
                 onClick={() => {
                   setCursor(fromKey(selected));
@@ -963,7 +920,7 @@ export default function Calendar() {
                     ? "Un día con espacio para lo que tú elijas."
                     : "Cargando tu calendario…"}{" "}
                   <button onClick={() => openEvent()} disabled={!loaded}>
-                    Añadir un plan
+                    Añadir una reserva
                   </button>
                 </p>
               )}
@@ -977,7 +934,7 @@ export default function Calendar() {
           </footer>
           {!isAuthenticated && (
             <div className={s.demoNote}>
-              Estás explorando eventos de ejemplo. Tus cambios se guardan en
+              Estás explorando reservas de ejemplo. Tus cambios se guardan en
               este navegador.{" "}
               <button onClick={() => setLoginOpen(true)}>
                 Inicia sesión para tener tu calendario personal{" "}
@@ -988,7 +945,7 @@ export default function Calendar() {
         </div>
       </div>
       <dialog
-        aria-label={editing?.id ? "Editar evento" : "Crear evento"}
+        aria-label={editing?.id ? "Datos de la reserva" : "Crear reserva"}
         ref={dialogRef}
         className={s.dialog}
         onCancel={(e) => {
@@ -999,7 +956,27 @@ export default function Calendar() {
           if (!saving) setEditing(null);
         }}
       >
-        {editing && (
+        {editing && (editing.id ? (
+          <section>
+            <div className={s.dialogHeader}>
+              <span className={s.kicker}>TU RESERVA</span>
+              <button type="button" aria-label="Cerrar reserva" onClick={closeEditor}><Icon name="close" /></button>
+            </div>
+            <h2>Datos de la reserva<span>.</span></h2>
+            <dl className={s.reservationDetails}>
+              <div><dt>Nombre de la reserva</dt><dd>{editing.title}</dd></div>
+              <div><dt>Fecha</dt><dd>{format(fromKey(editing.date), { day: "numeric", month: "long", year: "numeric" })}</dd></div>
+              <div><dt>Hora de inicio</dt><dd>{editing.start}</dd></div>
+              <div><dt>Hora de fin</dt><dd>{editing.end}</dd></div>
+              <div><dt>Lugar</dt><dd>{editing.location || "Sin ubicación"}</dd></div>
+              <div><dt>Color</dt><dd className={s.reservationColor}><i style={{ background: reservationColor }} />{reservationColor}</dd></div>
+              <div><dt>Notas</dt><dd>{editing.description || "Sin notas"}</dd></div>
+            </dl>
+            <div className={s.dialogActions}>
+              <button type="button" className={s.newEvent} onClick={closeEditor}>Cerrar</button>
+            </div>
+          </section>
+        ) : (
           <form onSubmit={submit}>
             <div className={s.dialogHeader}>
               <span className={s.kicker}>UN ESPACIO PARA TUS PLANES</span>
@@ -1013,17 +990,17 @@ export default function Calendar() {
               </button>
             </div>
             <h2>
-              {editing.id ? "Tu evento" : "Un nuevo plan"}
+              Una nueva reserva
               <span>.</span>
             </h2>
-            <p className={s.dialogIntro}>Dale un lugar en tu calendario.</p>
+            <p className={s.dialogIntro}>Completa los datos de tu reserva.</p>
             <label>
-              Título del evento
+              Nombre de la reserva
               <input
                 autoFocus
                 required
                 maxLength={120}
-                placeholder="¿Qué tienes en mente?"
+                placeholder="Escribe el nombre de la reserva"
                 value={editing.title}
                 onChange={(e) => update("title", e.target.value)}
               />
@@ -1068,26 +1045,18 @@ export default function Calendar() {
                 onChange={(e) => update("location", e.target.value)}
               />
             </label>
-            <label>
-              Tema
-              <input required maxLength={60} list="event-themes" placeholder="Escribe el tema: estudios, cumpleaños, viaje…"
-                value={theme} onChange={(e) => setTheme(e.target.value)} disabled={saving} />
-              <datalist id="event-themes">
-                {calendars.map((calendar) => <option key={calendar.id} value={calendar.label} />)}
-              </datalist>
-            </label>
             <div className={s.formRow}>
               <label>
-                Color de este evento
-                <input type="color" aria-label="Color de este evento"
+                Color de la reserva
+                <input type="color" aria-label="Color de la reserva"
                   value={editing.color && /^#[0-9a-fA-F]{6}$/.test(editing.color)
-                    ? editing.color : themeColor}
+                    ? editing.color : reservationColor}
                   onChange={(e) => update("color", e.target.value)} />
               </label>
               <label>
-                Código de color del evento
+                Código de color de la reserva
                 <input value={editing.color || ""} maxLength={7} pattern="#[0-9a-fA-F]{6}"
-                  placeholder={themeColor}
+                  placeholder={reservationColor}
                   onChange={(e) => update("color", e.target.value)} />
               </label>
             </div>
@@ -1107,19 +1076,6 @@ export default function Calendar() {
               </p>
             )}
             <div className={s.dialogActions}>
-              {editing.id && (
-                <button
-                  type="button"
-                  className={s.delete}
-                  disabled={saving}
-                  onClick={() => {
-                    if (window.confirm("¿Eliminar este evento?"))
-                      persist(editing, true);
-                  }}
-                >
-                  Eliminar
-                </button>
-              )}
               <button
                 type="button"
                 className={s.cancel}
@@ -1129,12 +1085,12 @@ export default function Calendar() {
                 Cancelar
               </button>
               <button type="submit" className={s.newEvent} disabled={saving}>
-                {saving ? "Guardando…" : "Guardar evento"}
+                {saving ? "Guardando…" : "Guardar reserva"}
                 <Icon name="check" size={16} />
               </button>
             </div>
           </form>
-        )}
+        ))}
       </dialog>
       <dialog aria-label="Mis calendarios" ref={calendarRef} className={s.dialog}
         onCancel={(e) => { e.preventDefault(); closeCalendars(); }}
