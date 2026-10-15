@@ -3,7 +3,7 @@
 Calendario en español construido con Next.js, React, NextAuth y MongoDB.
 
 - Vistas de mes, semana y agenda, navegación por fecha y búsqueda.
-- Crear reservas con nombre, fecha, hora de inicio y fin, lugar, color y notas. Una vez guardadas, solo se pueden consultar; la API rechaza modificaciones y eliminaciones.
+- Crear reservas con nombre, fecha, hora de inicio y fin, lugar, color y notas. Los usuarios pueden crear y consultar sus reservas; los administradores pueden gestionar las reservas de todos los usuarios.
 - Calendarios personalizables: crea los tuyos, cambia los nombres y elige cualquier color. Personal, Trabajo, Bienestar y Social son las opciones iniciales.
 - Elige el color directamente al crear la reserva. Los nombres y colores se guardan por cuenta; en la vista de prueba, solo en el navegador.
 - Eventos privados por cuenta, con acceso mediante Google o GitHub.
@@ -37,7 +37,9 @@ Hace falta al menos uno de los dos proveedores. Cada botón de acceso aparece cu
 
 Registra las URL de retorno `${NEXTAUTH_URL}/api/auth/callback/google` y `${NEXTAUTH_URL}/api/auth/callback/github` en los respectivos proveedores. No subas `.env.local` a GitHub. En producción utiliza HTTPS y configura las variables en tu plataforma de despliegue.
 
-Cada evento se guarda en MongoDB con el correo de la sesión verificada por NextAuth. Las consultas siempre se limitan a esa cuenta; el cliente no puede elegir al propietario. Las fechas y horas se muestran en la hora local y los eventos comienzan y terminan el mismo día. No incluye recurrencias, invitaciones ni sincronización con Google Calendar.
+Configura `CALENDAR_ADMIN_EMAILS` en Vercel con el correo de tu cuenta y vuelve a iniciar sesión para activar la administración (requiere correo verificado por Google o GitHub). Consulta la sección de administrador en la guía de cuentas.
+
+Cada evento se guarda en MongoDB con el correo de la sesión verificada por NextAuth. Las consultas de usuarios normales se limitan a su cuenta; el administrador puede ver todas las reservas y modificarlas; el cliente no puede elegir al propietario. Las fechas y horas se muestran en la hora local y los eventos comienzan y terminan el mismo día. No incluye recurrencias, invitaciones ni sincronización con Google Calendar.
 
 Las variables `CLOUDINARY_*` del ejemplo pertenecen a las funciones sociales originales del repositorio; el calendario no las necesita.
 

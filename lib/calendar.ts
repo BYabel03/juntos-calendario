@@ -48,6 +48,7 @@ export type CalendarEvent = {
   description: string;
   category: Category;
   color?: string;
+  owner?: string;
 };
 export const dateKey = (date: Date) =>
   `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(

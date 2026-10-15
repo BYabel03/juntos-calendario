@@ -66,3 +66,20 @@ Cuando tengas una URL pública:
 5. Permite la conexión del servidor de producción a MongoDB y repite la prueba con dos cuentas.
 
 En Vercel selecciona el framework **Next.js**, Node **24.x**, instalación `yarn install --frozen-lockfile` y compilación `yarn build`. Deja el directorio de salida con el valor automático. La versión de Node también está declarada en `package.json`.
+
+
+## 7. Administrador de reservas
+
+Los usuarios que inician sesión pueden crear reservas y consultar las suyas. Solo los administradores pueden ver todas las reservas, editarlas o eliminarlas. El modo de prueba no concede permisos de administrador.
+
+En Vercel → **Settings → Environment Variables**, añade:
+
+- **Name:** `CALENDAR_ADMIN_EMAILS`
+- **Value:** el correo que devuelve Google o GitHub al iniciar sesión con tu cuenta. Para varios administradores, separa sus correos con comas.
+- **Environment:** Production (y Preview solo si también quieres ese acceso allí).
+
+Guarda, vuelve a desplegar y cierra sesión antes de entrar de nuevo. El correo debe estar verificado por el proveedor. En GitHub, confirma ese correo en Settings → Emails; en Google, usa una cuenta con correo verificado. La lista de correos se guarda solo en el servidor y la aplicación comprueba los permisos en cada petición. Un fallo de verificación no concede acceso de administrador.
+
+Al entrar verás **Administrar reservas**, con los datos del creador en cada reserva. Abre una reserva y utiliza **Editar reserva** o **Eliminar reserva**. Las reservas nuevas siguen disponibles para usuarios normales mediante **Crear reserva**. Los cambios del administrador conservan al creador original.
+
+Para desarrollo local, configura la misma variable en `.env.local` y reinicia. Para retirar un administrador, elimina su correo de la variable y vuelve a desplegar. La sesión antigua no mantiene permisos frente a una lista ya actualizada en el servidor.

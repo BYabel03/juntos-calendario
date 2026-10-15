@@ -16,6 +16,7 @@ if (process.argv[2] === "init") {
         'NEXTAUTH_URL="http://localhost:3000"',
         `NEXT_AUTH_SECRET="${crypto.randomBytes(32).toString("base64")}"`,
         'MONGODB_URI=""',
+        'CALENDAR_ADMIN_EMAILS=""',
         'GITHUB_ID=""',
         'GITHUB_SECRET=""',
         'GOOGLE_ID=""',
@@ -82,6 +83,10 @@ check(
   "Al menos un acceso completo (GitHub o Google)",
   ["GITHUB", "GOOGLE"].some((p) => present(`${p}_ID`) && present(`${p}_SECRET`))
 );
+if (present("CALENDAR_ADMIN_EMAILS")) {
+  check("CALENDAR_ADMIN_EMAILS (correos separados por coma)",
+    env.CALENDAR_ADMIN_EMAILS.split(",").every((email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())));
+}
 console.log(
   "\nEsta comprobación valida la configuración; no conecta con MongoDB ni con los proveedores OAuth. No se muestran secretos."
 );

@@ -137,6 +137,7 @@ export default function Calendar() {
   const [notice, setNotice] = useState("");
   const [editing, setEditing] = useState<CalendarEvent | null>(null);
   const [saving, setSaving] = useState(false);
+  const [adminEditing, setAdminEditing] = useState(false);
   const [loginOpen, setLoginOpen] = useState(false);
   const [providers, setProviders] = useState<string[] | null>(null);
   const [providerError, setProviderError] = useState(false);
@@ -145,6 +146,7 @@ export default function Calendar() {
   const triggerRef = useRef<HTMLElement | null>(null);
   const scopeRef = useRef(0);
   const isAuthenticated = status === "authenticated";
+  const isAdmin = isAuthenticated && session?.isCalendarAdmin === true;
 
   useEffect(() => {
     const now = new Date();
@@ -156,6 +158,7 @@ export default function Calendar() {
   useEffect(() => {
     const scope = ++scopeRef.current;
     setEditing(null);
+    setAdminEditing(false);
     setCalendarManager(false);
     setCalendarDraft(null);
     setCalendarSaving(false);
@@ -214,7 +217,7 @@ export default function Calendar() {
       scopeRef.current = scope + 1;
       abort.abort();
     };
-  }, [today, status, isAuthenticated, session?.user?.email]);
+  }, [today, status, isAuthenticated, isAdmin, session?.user?.email]);
 
   useEffect(() => {
     if (editing && !dialogRef.current?.open) dialogRef.current?.showModal();
@@ -286,6 +289,7 @@ export default function Calendar() {
     triggerRef.current = document.activeElement as HTMLElement;
     setNotice("");
     setError("");
+    setAdminEditing(false);
     setEditing(
       event
         ? { ...event }
@@ -305,10 +309,11 @@ export default function Calendar() {
   function closeEditor() {
     if (saving) return;
     setEditing(null);
+    setAdminEditing(false);
     triggerRef.current?.focus();
   }
-  async function persist(event: CalendarEvent) {
-    if (event.id || saving || calendarSaving || !loaded) return;
+  async function persist(event: CalendarEvent, remove = false) {
+    if ((event.id && !isAdmin) || (remove && !event.id) || saving || calendarSaving || !loaded) return;
     const scope = scopeRef.current;
     setSaving(true);
     setError("");
@@ -320,7 +325,7 @@ export default function Calendar() {
       let saved = reservation;
       if (isAuthenticated) {
         const res = await fetch("/api/events", {
-          method: "POST",
+          method: remove ? "DELETE" : event.id ? "PUT" : "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(reservation),
         });
@@ -328,16 +333,18 @@ export default function Calendar() {
           const data = await res.json();
           throw new Error(data.error || "No se pudo guardar la reserva.");
         }
-        saved = await res.json();
+        if (!remove) saved = await res.json();
       } else saved = { ...reservation, id: crypto.randomUUID() };
       if (scope !== scopeRef.current) return;
-      const next = [...events, saved];
+      const next = remove ? events.filter((e) => e.id !== event.id)
+        : [...events.filter((e) => e.id !== event.id), saved];
       if (!isAuthenticated) localStorage.setItem(storageKey, JSON.stringify(next));
       setEvents(next);
       setSelected(event.date);
       setCursor(fromKey(event.date));
-      setNotice("Reserva guardada.");
+      setNotice(remove ? "Reserva eliminada." : event.id ? "Reserva actualizada." : "Reserva guardada.");
       setEditing(null);
+      setAdminEditing(false);
       triggerRef.current?.focus();
     } catch (e) {
       if (scope !== scopeRef.current) return;
@@ -348,7 +355,7 @@ export default function Calendar() {
   }
   function submit(e: FormEvent) {
     e.preventDefault();
-    if (!editing || editing.id) return;
+    if (!editing || (editing.id && !isAdmin)) return;
     if (!validEvent(editing)) {
       setError(
         "La hora de fin debe ser posterior al inicio. Revisa los datos de la reserva."
@@ -358,7 +365,7 @@ export default function Calendar() {
     persist(editing);
   }
   function update(field: keyof CalendarEvent, value: string) {
-    setEditing((event) => (event && !event.id ? { ...event, [field]: value } : event));
+    setEditing((event) => (event && (!event.id || isAdmin) ? { ...event, [field]: value } : event));
   }
   function categoryStyle(category: Category, override?: string): CSSProperties {
     const calendar = calendars.find((c) => c.id === category) || defaultCalendars[0];
@@ -432,6 +439,7 @@ export default function Calendar() {
           <small>
             {event.start} – {event.end}
             {event.location && ` · ${event.location}`}
+            {isAdmin && event.owner && ` · ${event.owner}`}
           </small>
         )}
       </span>
@@ -607,7 +615,7 @@ export default function Calendar() {
               <Icon name="grid" size={14} /> Calendarios
             </button>
             <span className={s.modeLabel}><span className={s.liveDot} />
-            {isAuthenticated ? "Tu espacio personal" : "Vista de prueba"}</span>
+            {isAdmin ? "Administrador" : isAuthenticated ? "Tu espacio personal" : "Vista de prueba"}</span>
             <span className={s.topDivider} />
             <button
               className={s.avatar}
@@ -625,9 +633,9 @@ export default function Calendar() {
                 <span /> CADA DÍA CUENTA
               </div>
               <h1>
-                Tu tiempo, a tu manera<span>.</span>
+                {isAdmin ? "Administrar reservas" : "Tu tiempo, a tu manera"}<span>.</span>
               </h1>
-              <p>Tus planes, tus momentos. Todo en un solo lugar.</p>
+              <p>{isAdmin ? "Reservas de todos los usuarios. Puedes crear, editar y eliminar." : "Tus planes, tus momentos. Todo en un solo lugar."}</p>
             </div>
             <button
               className={s.newEvent}
@@ -945,7 +953,7 @@ export default function Calendar() {
         </div>
       </div>
       <dialog
-        aria-label={editing?.id ? "Datos de la reserva" : "Crear reserva"}
+        aria-label={editing?.id ? isAdmin && adminEditing ? "Editar reserva" : "Datos de la reserva" : "Crear reserva"}
         ref={dialogRef}
         className={s.dialog}
         onCancel={(e) => {
@@ -953,10 +961,10 @@ export default function Calendar() {
           closeEditor();
         }}
         onClose={() => {
-          if (!saving) setEditing(null);
+          if (!saving) { setEditing(null); setAdminEditing(false); }
         }}
       >
-        {editing && (editing.id ? (
+        {editing && (editing.id && !(isAdmin && adminEditing) ? (
           <section>
             <div className={s.dialogHeader}>
               <span className={s.kicker}>TU RESERVA</span>
@@ -965,6 +973,7 @@ export default function Calendar() {
             <h2>Datos de la reserva<span>.</span></h2>
             <dl className={s.reservationDetails}>
               <div><dt>Nombre de la reserva</dt><dd>{editing.title}</dd></div>
+              {isAdmin && editing.owner && <div><dt>Creada por</dt><dd>{editing.owner}</dd></div>}
               <div><dt>Fecha</dt><dd>{format(fromKey(editing.date), { day: "numeric", month: "long", year: "numeric" })}</dd></div>
               <div><dt>Hora de inicio</dt><dd>{editing.start}</dd></div>
               <div><dt>Hora de fin</dt><dd>{editing.end}</dd></div>
@@ -972,8 +981,15 @@ export default function Calendar() {
               <div><dt>Color</dt><dd className={s.reservationColor}><i style={{ background: reservationColor }} />{reservationColor}</dd></div>
               <div><dt>Notas</dt><dd>{editing.description || "Sin notas"}</dd></div>
             </dl>
+            {error && <p className={s.error} role="alert">{error}</p>}
             <div className={s.dialogActions}>
-              <button type="button" className={s.newEvent} onClick={closeEditor}>Cerrar</button>
+              {isAdmin && <>
+                <button type="button" className={s.delete} disabled={saving} onClick={() => {
+                  if (window.confirm("¿Eliminar esta reserva?")) persist(editing, true);
+                }}>Eliminar reserva</button>
+                <button type="button" className={s.newEvent} disabled={saving} onClick={() => setAdminEditing(true)}>Editar reserva</button>
+              </>}
+              <button type="button" className={s.cancel} disabled={saving} onClick={closeEditor}>Cerrar</button>
             </div>
           </section>
         ) : (
@@ -990,10 +1006,10 @@ export default function Calendar() {
               </button>
             </div>
             <h2>
-              Una nueva reserva
+              {editing.id ? "Editar reserva" : "Una nueva reserva"}
               <span>.</span>
             </h2>
-            <p className={s.dialogIntro}>Completa los datos de tu reserva.</p>
+            <p className={s.dialogIntro}>{editing.id ? "Los cambios conservarán al creador original de la reserva." : "Completa los datos de tu reserva."}</p>
             <label>
               Nombre de la reserva
               <input
@@ -1085,7 +1101,7 @@ export default function Calendar() {
                 Cancelar
               </button>
               <button type="submit" className={s.newEvent} disabled={saving}>
-                {saving ? "Guardando…" : "Guardar reserva"}
+                {saving ? "Guardando…" : editing.id ? "Guardar cambios" : "Guardar reserva"}
                 <Icon name="check" size={16} />
               </button>
             </div>

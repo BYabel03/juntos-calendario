@@ -25,29 +25,43 @@ const event = {
   category: "personal",
 };
 const id = "507f1f77bcf86cd799439011";
-function harness({ email = owner, token = true, calendarExists = true } = {}) {
+function harness({ email = owner, token = true, calendarExists = true,
+  verified = false, adminEmails = "admin@example.test", records = [] } = {}) {
+  const env = { NEXTAUTH_URL: "http://localhost:3000", NEXT_AUTH_SECRET: "synthetic-test-only", CALENDAR_ADMIN_EMAILS: adminEmails };
+  const permissions = {};
+  vm.runInNewContext(ts.transpileModule(fs.readFileSync("lib/calendarPermissions.ts", "utf8"), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS },
+  }).outputText, { exports: permissions, process: { env } });
   const calls = [];
   const model = {
     find: (query) => {
       calls.push(["find", query]);
-      return { sort: () => ({ lean: async () => [] }) };
+      return { sort: () => ({ lean: async () => records.filter(r => !query.owner || r.owner === query.owner) }) };
     },
     create: async (data) => {
       calls.push(["create", data]);
       return { _id: id, ...data };
     },
-    findOneAndUpdate: async (query, data) => {
-      calls.push(["update", query, data]);
-      return null;
+    findOne: (query) => {
+      calls.push(["findOne", query]);
+      return { lean: async () => records.find(r => r._id === query._id) || null };
+    },
+    findOneAndUpdate: async (query, data, options) => {
+      calls.push(["update", query, data, options]);
+      const record = records.find(r => r._id === query._id && r.owner === query.owner);
+      return record ? Object.assign(record, data.$set) : null;
     },
     deleteOne: async (query) => {
       calls.push(["delete", query]);
-      return { deletedCount: 0 };
+      const index = records.findIndex(r => r._id === query._id);
+      if (index >= 0) records.splice(index, 1);
+      return { deletedCount: index >= 0 ? 1 : 0 };
     },
   };
   const exports = {};
   const modules = {
-    "next-auth/jwt": { getToken: async () => (token ? { email } : null) },
+    "next-auth/jwt": { getToken: async () => (token ? { email, calendarEmailVerified: verified } : null) },
+    "lib/calendarPermissions": permissions,
     mongoose: { isValidObjectId: (value) => /^[a-f0-9]{24}$/.test(value) },
     "lib/dbConnect": async () => calls.push(["connect"]),
     "models/event": model,
@@ -57,12 +71,7 @@ function harness({ email = owner, token = true, calendarExists = true } = {}) {
   vm.runInNewContext(code, {
     exports,
     require: (name) => modules[name],
-    process: {
-      env: {
-        NEXTAUTH_URL: "http://localhost:3000",
-        NEXT_AUTH_SECRET: "synthetic-test-only",
-      },
-    },
+    process: { env },
   });
   async function invoke(method, body, headers = {}) {
     const res = {
@@ -86,11 +95,11 @@ function harness({ email = owner, token = true, calendarExists = true } = {}) {
     await exports.default({ method, body, headers }, res);
     return res;
   }
-  return { calls, invoke };
+  return { calls, invoke, setAdmins: (value) => { env.CALENDAR_ADMIN_EMAILS = value; } };
 }
 test("unauthenticated requests never touch storage", async () => {
   const h = harness({ token: false });
-  for (const method of ["GET", "POST"])
+  for (const method of ["GET", "POST", "PUT", "DELETE"])
     assert.equal((await h.invoke(method, event)).statusCode, 401);
   assert.equal(h.calls.length, 0);
 });
@@ -115,14 +124,15 @@ test("client cannot assign event ownership or extra fields", async () => {
   assert.equal(res.body.owner, undefined);
   assert.equal(res.body.id, id);
 });
-test("saved reservations cannot be changed or deleted, even by their owner", async () => {
+test("ordinary users can create but cannot modify reservations or grant themselves admin", async () => {
   const h = harness();
-  for (const method of ["PUT", "PATCH", "DELETE"]) {
-    const res = await h.invoke(method, { ...event, id });
-    assert.equal(res.statusCode, 405);
-    assert.equal(res.headers.Allow, "GET, POST");
+  for (const method of ["PUT", "DELETE"]) {
+    const res = await h.invoke(method, { ...event, id, isCalendarAdmin: true, role: "admin", owner: "admin@example.test" });
+    assert.equal(res.statusCode, 403);
   }
   assert.equal(h.calls.length, 0);
+  assert.equal((await h.invoke("POST", event)).statusCode, 201);
+  assert.equal((await h.invoke("PATCH", event)).statusCode, 405);
 });
 test("rejects malformed dates, hours and cross-origin writes before storage", async () => {
   const h = harness();
@@ -158,4 +168,55 @@ test("custom calendar and event colors persist only within the verified account"
   const invalid = harness();
   assert.equal((await invalid.invoke("POST", { ...event, color: "url(invalid)" })).statusCode, 400);
   assert.equal(invalid.calls.length, 0);
+});
+
+test("only a verified, configured administrator can list all owners", async () => {
+  const records = [{ ...event, _id: id, owner }, { ...event, _id: "507f1f77bcf86cd799439012", owner: "second@example.test" }];
+  const user = harness({ records });
+  const own = await user.invoke("GET");
+  assert.equal(own.body.length, 1);
+  assert.equal(own.body[0].owner, undefined);
+  const admin = harness({ email: "ADMIN@example.test", verified: true, adminEmails: " other@example.test, admin@example.test ", records });
+  const all = await admin.invoke("GET");
+  assert.equal(all.body.length, 2);
+  assert.equal(all.body[0].owner, owner);
+  assert.equal(Object.keys(admin.calls[1][1]).length, 0);
+  for (const config of [
+    { email: "admin@example.test", verified: false },
+    { email: "admin@example.test", verified: true, adminEmails: "" },
+    { email: "admin@example.test.evil", verified: true },
+  ]) {
+    const denied = harness(config);
+    assert.equal((await denied.invoke("PUT", { ...event, id })).statusCode, 403);
+    assert.equal(denied.calls.length, 0);
+  }
+});
+test("admin edits and deletes another owner's reservation while preserving its creator", async () => {
+  const records = [{ ...event, _id: id, owner, category: "custom-123" }];
+  const admin = harness({ email: "admin@example.test", verified: true, records });
+  const changed = await admin.invoke("PUT", { ...event, id, title: "Updated by admin", category: "custom-123", owner: "injected@example.test", color: "#ffffff" });
+  assert.equal(changed.statusCode, 200);
+  assert.equal(changed.body.owner, owner);
+  assert.equal(changed.body.title, "Updated by admin");
+  const category = admin.calls.find(c => c[0] === "calendar");
+  assert.equal(category[1].owner, owner);
+  const update = admin.calls.find(c => c[0] === "update");
+  assert.equal(update[1].owner, owner);
+  assert.equal(update[2].$set.owner, undefined);
+  assert.equal(update[3].runValidators, true);
+  assert.equal((await admin.invoke("DELETE", { id })).statusCode, 204);
+  assert.equal((await admin.invoke("DELETE", { id })).statusCode, 404);
+});
+test("admin writes validate inputs and revocation takes effect on the next request", async () => {
+  const h = harness({ email: "admin@example.test", verified: true });
+  assert.equal((await h.invoke("PUT", { ...event, id: { $ne: null } })).statusCode, 400);
+  assert.equal((await h.invoke("DELETE", { id: "bad" })).statusCode, 400);
+  assert.equal((await h.invoke("PUT", { ...event, id, end: "08:00" })).statusCode, 400);
+  assert.equal((await h.invoke("PUT", { ...event, id }, { origin: "https://evil.example.test" })).statusCode, 403);
+  assert.equal(h.calls.length, 0);
+  assert.equal((await h.invoke("PUT", { ...event, id })).statusCode, 404);
+  h.calls.length = 0;
+  h.setAdmins("");
+  assert.equal((await h.invoke("DELETE", { id })).statusCode, 403);
+  assert.equal(h.calls.length, 0);
 });
