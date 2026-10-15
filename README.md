@@ -5,6 +5,7 @@ Calendario en español construido con Next.js, React, NextAuth y MongoDB.
 - Vistas de mes, semana y agenda, navegación por fecha y búsqueda.
 - Crear, editar y eliminar eventos con fecha, hora de inicio y fin, lugar y notas.
 - Calendarios personalizables: crea los tuyos, cambia los nombres y elige cualquier color. Personal, Trabajo, Bienestar y Social son las opciones iniciales.
+- Escribe el tema y elige el color directamente en el formulario del evento; los temas nuevos se crean al guardarlo.
 - Color propio opcional por evento, o el color del calendario. Los nombres y colores se guardan por cuenta; en la vista de prueba, solo en el navegador.
 - Eventos privados por cuenta, con acceso mediante Google o GitHub.
 - Vista de prueba con ejemplos y almacenamiento local, separada de los eventos de la cuenta.

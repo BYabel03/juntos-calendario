@@ -136,6 +136,8 @@ export default function Calendar() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [editing, setEditing] = useState<CalendarEvent | null>(null);
+  const [theme, setTheme] = useState("");
+  const pendingThemeRef = useRef<{ label: string; id: string } | null>(null);
   const [saving, setSaving] = useState(false);
   const [loginOpen, setLoginOpen] = useState(false);
   const [providers, setProviders] = useState<string[] | null>(null);
@@ -156,6 +158,8 @@ export default function Calendar() {
   useEffect(() => {
     const scope = ++scopeRef.current;
     setEditing(null);
+    setTheme("");
+    pendingThemeRef.current = null;
     setCalendarManager(false);
     setCalendarDraft(null);
     setCalendarSaving(false);
@@ -286,6 +290,8 @@ export default function Calendar() {
     triggerRef.current = document.activeElement as HTMLElement;
     setNotice("");
     setError("");
+    setTheme(event ? calendars.find((c) => c.id === event.category)?.label || "" : "");
+    pendingThemeRef.current = null;
     setEditing(
       event
         ? { ...event }
@@ -313,19 +319,54 @@ export default function Calendar() {
     setSaving(true);
     setError("");
     try {
-      let saved = event;
+      let eventToSave = event;
+      if (!remove) {
+        const label = theme.trim();
+        if (!label || label.length > 60) throw new Error("Escribe el tema de tu evento (hasta 60 caracteres).");
+        const normalized = label.toLocaleLowerCase("es");
+        const current = calendars.find((c) => c.id === event.category);
+        const existing = current?.label.toLocaleLowerCase("es") === normalized
+          ? current : calendars.find((c) => c.label.toLocaleLowerCase("es") === normalized);
+        let calendar = existing;
+        if (!calendar) {
+          // Keep the ID stable if the request succeeds but its response is lost.
+          if (pendingThemeRef.current?.label !== normalized) {
+            pendingThemeRef.current = { label: normalized, id: crypto.randomUUID() };
+          }
+          calendar = { id: pendingThemeRef.current.id, label, color: event.color || current?.color || "#387c65" };
+          if (isAuthenticated) {
+            const response = await fetch("/api/calendars", {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(calendar),
+            });
+            if (!response.ok) {
+              const data = await response.json();
+              throw new Error(data.error || "No se pudo guardar el tema. Inténtalo de nuevo.");
+            }
+            calendar = await response.json();
+            if (!validCalendar(calendar)) throw new Error("No se pudo leer el tema guardado.");
+          }
+          if (scope !== scopeRef.current) return;
+          const nextCalendars = [...calendars, calendar];
+          if (!isAuthenticated) localStorage.setItem(calendarsKey, JSON.stringify(nextCalendars));
+          setCalendars(nextCalendars);
+        }
+        eventToSave = { ...event, category: calendar.id };
+      }
+      let saved = eventToSave;
       if (isAuthenticated) {
         const res = await fetch("/api/events", {
           method: remove ? "DELETE" : event.id ? "PUT" : "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(event),
+          body: JSON.stringify(eventToSave),
         });
         if (!res.ok) {
           const data = await res.json();
           throw new Error(data.error);
         }
         if (!remove) saved = await res.json();
-      } else if (!saved.id) saved = { ...event, id: crypto.randomUUID() };
+      } else if (!saved.id) saved = { ...eventToSave, id: crypto.randomUUID() };
       if (scope !== scopeRef.current) return;
       const next = remove
         ? events.filter((e) => e.id !== event.id)
@@ -417,6 +458,8 @@ export default function Calendar() {
       if (scope === scopeRef.current) setCalendarSaving(false);
     }
   }
+  const themeColor = calendars.find((c) => c.label.toLocaleLowerCase("es") === theme.trim().toLocaleLowerCase("es"))?.color
+    || calendars.find((c) => c.id === editing?.category)?.color || "#387c65";
   const eventButton = (event: CalendarEvent, compact = false) => (
     <button
       key={event.id}
@@ -1025,51 +1068,29 @@ export default function Calendar() {
                 onChange={(e) => update("location", e.target.value)}
               />
             </label>
-            <fieldset>
-              <legend>Calendario</legend>
-              <div className={s.colorOptions}>
-                {calendars.map(({ id: key, label }) => (
-                  <label key={key} style={categoryStyle(key)}>
-                    <input
-                      type="radio"
-                      name="category"
-                      value={key}
-                      checked={editing.category === key}
-                      onChange={() => update("category", key)}
-                    />
-                    <span
-                      className={
-                        editing.category === key ? s.colorSelected : ""
-                      }
-                    >
-                      <i />
-                      {label}
-                    </span>
-                  </label>
-                ))}
-              </div>
-              <button type="button" className={s.manageLink} onClick={openCalendars} disabled={saving}>
-                <Icon name="plus" size={14} /> Crear o editar calendarios
-              </button>
-            </fieldset>
+            <label>
+              Tema
+              <input required maxLength={60} list="event-themes" placeholder="Escribe el tema: estudios, cumpleaños, viaje…"
+                value={theme} onChange={(e) => setTheme(e.target.value)} disabled={saving} />
+              <datalist id="event-themes">
+                {calendars.map((calendar) => <option key={calendar.id} value={calendar.label} />)}
+              </datalist>
+            </label>
             <div className={s.formRow}>
               <label>
                 Color de este evento
                 <input type="color" aria-label="Color de este evento"
                   value={editing.color && /^#[0-9a-fA-F]{6}$/.test(editing.color)
-                    ? editing.color : calendars.find((c) => c.id === editing.category)?.color || "#387c65"}
+                    ? editing.color : themeColor}
                   onChange={(e) => update("color", e.target.value)} />
               </label>
               <label>
                 Código de color del evento
                 <input value={editing.color || ""} maxLength={7} pattern="#[0-9a-fA-F]{6}"
-                  placeholder={calendars.find((c) => c.id === editing.category)?.color || "#387c65"}
+                  placeholder={themeColor}
                   onChange={(e) => update("color", e.target.value)} />
               </label>
             </div>
-            <button type="button" className={s.manageLink} onClick={() => update("color", "")} disabled={saving}>
-              Usar el color del calendario
-            </button>
             <label>
               Notas <span className={s.optional}>(opcional)</span>
               <textarea
